@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+
+# OpenMC run output and generated model input
+materials.xml
+geometry.xml
+settings.xml
+tallies.xml
+plots.xml
+summary.h5
+statepoint.*
+source.*
+*.vtk
+*.h5
+results/
+runs/
