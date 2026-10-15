@@ -25,8 +25,19 @@ class SourceConfig:
 class LayerConfig:
     name: str
     radius_cm: float
+    thickness_cm: float
     height_cm: float
     material: str
+
+
+@dataclass(frozen=True)
+class DetectorConfig:
+    x_cm: float
+    y_cm: float
+    z_cm: float
+    width_x_cm: float
+    width_y_cm: float
+    thickness_z_cm: float
 
 
 @dataclass(frozen=True)
@@ -61,11 +72,17 @@ class TallyConfig:
 @dataclass(frozen=True)
 class VisualizationConfig:
     mesh_bins: int = 100
+    slice_thickness_cm: float = 0.4
+    energy_bins_mev: tuple[float, ...] = ()
+    marginal_x_cm: float = 0.0
+    marginal_y_cm: float = 0.0
+    marginal_z_cm: float = 0.0
 
 
 @dataclass(frozen=True)
 class SimulationConfig:
     source: SourceConfig
+    detector: DetectorConfig
     geometry: GeometryConfig
     materials: dict[str, MaterialConfig]
     settings: SettingsConfig
@@ -124,7 +141,7 @@ def load_config(path: str | Path) -> SimulationConfig:
     _keys(
         root,
         {"source", "geometry", "materials", "settings", "tally"},
-        {"visualization"},
+        {"visualization", "detector"},
         "configuration",
     )
 
@@ -153,7 +170,16 @@ def load_config(path: str | Path) -> SimulationConfig:
     for index, raw_layer in enumerate(raw_layers):
         layer_path = f"geometry.layers[{index}]"
         layer_data = _mapping(raw_layer, layer_path)
-        _keys(layer_data, {"name", "radius_cm", "height_cm", "material"}, set(), layer_path)
+        _keys(
+            layer_data,
+            {"name", "height_cm", "material"},
+            {"radius_cm", "thickness_mm"},
+            layer_path,
+        )
+        if ("radius_cm" in layer_data) == ("thickness_mm" in layer_data):
+            raise ConfigError(
+                f"{layer_path} must define exactly one of radius_cm or thickness_mm"
+            )
         name = layer_data["name"]
         material = layer_data["material"]
         if not isinstance(name, str) or not name.strip():
@@ -162,13 +188,28 @@ def load_config(path: str | Path) -> SimulationConfig:
             raise ConfigError(f"geometry layer name {name!r} is duplicated")
         if not isinstance(material, str) or not material.strip():
             raise ConfigError(f"{layer_path}.material must be a non-empty string")
-        radius = _number(layer_data["radius_cm"], f"{layer_path}.radius_cm", minimum=0, exclusive=True)
+        if "thickness_mm" in layer_data:
+            thickness_cm = _number(
+                layer_data["thickness_mm"],
+                f"{layer_path}.thickness_mm",
+                minimum=0,
+                exclusive=True,
+            ) / 10.0
+            radius = previous_radius + thickness_cm
+        else:
+            radius = _number(
+                layer_data["radius_cm"],
+                f"{layer_path}.radius_cm",
+                minimum=0,
+                exclusive=True,
+            )
+            thickness_cm = radius - previous_radius
         height = _number(layer_data["height_cm"], f"{layer_path}.height_cm", minimum=0, exclusive=True)
         if radius <= previous_radius:
             raise ConfigError(f"{layer_path}.radius_cm must exceed the preceding cylinder radius")
         if height < previous_height:
             raise ConfigError(f"{layer_path}.height_cm must be at least the preceding cylinder height")
-        layers.append(LayerConfig(name, radius, height, material))
+        layers.append(LayerConfig(name, radius, thickness_cm, height, material))
         names.add(name)
         previous_radius = radius
         previous_height = height
@@ -179,7 +220,7 @@ def load_config(path: str | Path) -> SimulationConfig:
     outermost = layers[-1]
     if world_radius <= math.hypot(outermost.radius_cm, outermost.height_cm / 2):
         raise ConfigError("geometry.world_radius_cm must enclose the outermost cylinder")
-    if source.radius_cm >= cavity_radius or source.height_cm > cavity_height:
+    if source.radius_cm > cavity_radius or source.height_cm > cavity_height:
         raise ConfigError("the source cylinder must fit inside geometry.cavity")
     geometry = GeometryConfig(cavity_radius, cavity_height, tuple(layers), world_radius)
 
@@ -234,24 +275,145 @@ def load_config(path: str | Path) -> SimulationConfig:
     )
 
     tally_data = _mapping(root["tally"], "tally")
-    _keys(tally_data, {"energy_bins_mev"}, set(), "tally")
-    raw_bins = tally_data["energy_bins_mev"]
-    if not isinstance(raw_bins, list) or len(raw_bins) < 2:
-        raise ConfigError("tally.energy_bins_mev must contain at least two energy boundaries")
-    bins = tuple(
-        _number(edge, f"tally.energy_bins_mev[{index}]", minimum=0)
-        for index, edge in enumerate(raw_bins)
-    )
+    range_keys = {"energy_min_mev", "energy_max_mev", "energy_bin_width_mev"}
+    explicit_edges = "energy_bins_mev" in tally_data
+    if explicit_edges:
+        _keys(tally_data, {"energy_bins_mev"}, set(), "tally")
+        raw_bins = tally_data["energy_bins_mev"]
+        if not isinstance(raw_bins, list) or len(raw_bins) < 2:
+            raise ConfigError("tally.energy_bins_mev must contain at least two energy boundaries")
+        bins = tuple(
+            _number(edge, f"tally.energy_bins_mev[{index}]", minimum=0)
+            for index, edge in enumerate(raw_bins)
+        )
+    else:
+        _keys(tally_data, range_keys, set(), "tally")
+        energy_min = _number(tally_data["energy_min_mev"], "tally.energy_min_mev", minimum=0)
+        energy_max = _number(
+            tally_data["energy_max_mev"],
+            "tally.energy_max_mev",
+            minimum=energy_min,
+            exclusive=True,
+        )
+        bin_width = _number(
+            tally_data["energy_bin_width_mev"],
+            "tally.energy_bin_width_mev",
+            minimum=0,
+            exclusive=True,
+        )
+        bin_count = round((energy_max - energy_min) / bin_width)
+        if bin_count < 1 or not math.isclose(
+            energy_min + bin_count * bin_width, energy_max, rel_tol=1e-10, abs_tol=1e-12
+        ):
+            raise ConfigError(
+                "tally energy range must be an exact multiple of energy_bin_width_mev"
+            )
+        bins = tuple(
+            energy_min + index * bin_width for index in range(bin_count)
+        ) + (energy_max,)
     if any(right <= left for left, right in zip(bins, bins[1:])):
         raise ConfigError("tally.energy_bins_mev must be strictly increasing")
     tally = TallyConfig(bins)
 
     visualization_data = _mapping(root.get("visualization", {}), "visualization")
-    _keys(visualization_data, set(), {"mesh_bins"}, "visualization")
+    _keys(
+        visualization_data,
+        set(),
+        {
+            "mesh_bins",
+            "slice_thickness_cm",
+            "energy_bins_mev",
+            "marginal_x_cm",
+            "marginal_y_cm",
+            "marginal_z_cm",
+        },
+        "visualization",
+    )
+    map_edges_raw = visualization_data.get("energy_bins_mev", list(bins))
+    if not isinstance(map_edges_raw, list) or len(map_edges_raw) < 2:
+        raise ConfigError("visualization.energy_bins_mev must contain at least two boundaries")
+    map_edges = tuple(
+        _number(edge, f"visualization.energy_bins_mev[{index}]", minimum=0)
+        for index, edge in enumerate(map_edges_raw)
+    )
+    if any(right <= left for left, right in zip(map_edges, map_edges[1:])):
+        raise ConfigError("visualization.energy_bins_mev must be strictly increasing")
+    if map_edges[0] < bins[0] or map_edges[-1] > bins[-1]:
+        raise ConfigError("visualization.energy_bins_mev must fit within the tally energy range")
     visualization = VisualizationConfig(
         mesh_bins=_positive_int(
             visualization_data.get("mesh_bins", 100), "visualization.mesh_bins"
-        )
+        ),
+        slice_thickness_cm=_number(
+            visualization_data.get("slice_thickness_cm", 0.4),
+            "visualization.slice_thickness_cm",
+            minimum=0,
+            exclusive=True,
+        ),
+        energy_bins_mev=map_edges,
+        marginal_x_cm=_number(
+            visualization_data.get("marginal_x_cm", 0.0),
+            "visualization.marginal_x_cm",
+            minimum=-world_radius,
+        ),
+        marginal_y_cm=_number(
+            visualization_data.get("marginal_y_cm", 0.0),
+            "visualization.marginal_y_cm",
+            minimum=-world_radius,
+        ),
+        marginal_z_cm=_number(
+            visualization_data.get("marginal_z_cm", 0.0),
+            "visualization.marginal_z_cm",
+            minimum=-world_radius,
+        ),
     )
+    if abs(visualization.marginal_x_cm) > outermost.radius_cm:
+        raise ConfigError("visualization.marginal_x_cm must lie within the outer layer radius")
+    if abs(visualization.marginal_y_cm) > outermost.radius_cm:
+        raise ConfigError("visualization.marginal_y_cm must lie within the outer layer radius")
+    if abs(visualization.marginal_z_cm) > outermost.height_cm / 2:
+        raise ConfigError("visualization.marginal_z_cm must lie within the layer half-height")
 
-    return SimulationConfig(source, geometry, materials, settings, tally, visualization)
+    detector_data = _mapping(root.get("detector", {}), "detector")
+    _keys(
+        detector_data,
+        set(),
+        {"x_cm", "y_cm", "z_cm", "width_x_cm", "width_y_cm", "thickness_z_cm"},
+        "detector",
+    )
+    detector = DetectorConfig(
+        x_cm=_number(detector_data.get("x_cm", 0.0), "detector.x_cm", minimum=-world_radius),
+        y_cm=_number(detector_data.get("y_cm", 0.0), "detector.y_cm", minimum=-world_radius),
+        z_cm=_number(detector_data.get("z_cm", 0.0), "detector.z_cm", minimum=-world_radius),
+        width_x_cm=_number(
+            detector_data.get("width_x_cm", 0.4),
+            "detector.width_x_cm",
+            minimum=0,
+            exclusive=True,
+        ),
+        width_y_cm=_number(
+            detector_data.get("width_y_cm", 0.4),
+            "detector.width_y_cm",
+            minimum=0,
+            exclusive=True,
+        ),
+        thickness_z_cm=_number(
+            detector_data.get("thickness_z_cm", 0.05),
+            "detector.thickness_z_cm",
+            minimum=0,
+            exclusive=True,
+        ),
+    )
+    detector_radius = math.hypot(
+        abs(detector.x_cm) + detector.width_x_cm / 2,
+        abs(detector.y_cm) + detector.width_y_cm / 2,
+    )
+    detector_z = abs(detector.z_cm) + detector.thickness_z_cm / 2
+    if (
+        math.hypot(detector_radius, detector_z) >= world_radius
+        or detector_radius > outermost.radius_cm
+        or detector_z > outermost.height_cm / 2
+    ):
+        raise ConfigError("detector volume must fit inside the layered geometry")
+
+    return SimulationConfig(source, detector, geometry, materials, settings, tally, visualization)

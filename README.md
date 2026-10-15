@@ -25,62 +25,71 @@ python -m pip install -e ".[test]"
 
 ## Configure and run
 
-Start with [`config/example.yaml`](config/example.yaml). The source is sampled
-uniformly by volume inside its radius and height. The cavity is vacuum. Layers
-are listed from inner to outer; each cylindrical layer must have a larger
-radius and at least the height of the preceding cylinder. Where an outer layer
-extends beyond the preceding cylinder's height, it forms an end cap. The
-configured spherical vacuum boundary must enclose the whole system.
+The three preliminary paths are configured in
+[`config/reactorpath1.yaml`](config/reactorpath1.yaml),
+[`config/reactorpath2.yaml`](config/reactorpath2.yaml), and
+[`config/reactorpath3.yaml`](config/reactorpath3.yaml). Each uses the same
+uniform-volume, monoenergetic cylindrical source: 1 cm diameter, 35 cm tall,
+14.1 MeV. Layers are listed from the source outward as radial cylindrical
+shells; `thickness_mm` is the thickness of each shell. In these three configs
+every layer is 60 cm tall.
 
 Materials specify either element atom ratios or nuclide atom ratios, along with
 a density in g/cm3. Optional thermal-scattering table names are passed through
-to OpenMC (for example, `c_H_in_CH2` for polyethylene). Element and nuclide
-names and thermal-scattering tables must be present in the selected nuclear
-data library.
+to OpenMC (`c_H_in_H2O` for water). The preliminary configurations model dry
+air using natural N/O/Ar/C elemental proportions, aluminium at 2.70 g/cm3, and
+water at 1.0 g/cm3. The selected nuclear data library must include the natural
+isotopes for H, C, N, O, Ar and Al, plus the `c_H_in_H2O` thermal-scattering
+table.
 
 Build OpenMC XML inputs without starting a simulation:
 
 ```sh
-iec-neutrons build config/example.yaml
+iec-neutrons build config/reactorpath1.yaml
 ```
 
-Run the fixed-source simulation:
+Run any one path (each preliminary configuration is set to 100,000 particles
+per batch and 10 batches):
 
 ```sh
-iec-neutrons run config/example.yaml
+iec-neutrons run config/reactorpath1.yaml
+iec-neutrons run config/reactorpath2.yaml
+iec-neutrons run config/reactorpath3.yaml
 ```
 
 Both commands accept `--output-dir`; by default files go to
-`runs/example/`. The model scores an energy-binned flux spectrum in the source
-cavity and each moderator layer, plus mesh tallies for top-down (XY) and
-side-on (XZ) projections. The projection bins average flux over their collapsed
-axis: XY averages over the full z extent and XZ averages over the full y extent.
-Set `visualization.mesh_bins` to change the number of spatial bins on each
-resolved axis.
+`runs/<config-name>/`. The energy tallies use 0.1 MeV bins from 1 to 16 MeV.
+The spatial map tallies use a separate, coarser set of energy groups to keep
+plot panels manageable. XY and XZ maps are central-plane slab averages; the
+slab thickness is set by `visualization.slice_thickness_cm` (0.4 cm by default).
+`visualization.mesh_bins` controls spatial resolution.
 
 OpenMC tallies are normalized per source particle; multiply them by the
 physical neutron emission rate when a source-rate-normalized result is needed.
 The run creates a statepoint HDF5 file, which can be analyzed with OpenMC's
 Python API.
 
-Plot the flux and energy results from the statepoint:
+Each config includes a 0.4 × 0.4 cm detector face and 500 µm thickness. Change
+`detector.x_cm`, `detector.y_cm`, and `detector.z_cm` to position it, then
+rerun the simulation. The detector energy plot is the volume-averaged neutron
+flux spectrum in that box (not a detector-response/count-rate simulation).
+Detector dimensions can be changed with `width_x_cm`, `width_y_cm`, and
+`thickness_z_cm`.
+
+Plot the results from the statepoint:
 
 ```sh
-iec-neutrons plot config/example.yaml runs/example/statepoint.10.h5
+iec-neutrons plot config/reactorpath1.yaml runs/reactorpath1/statepoint.10.h5
 ```
 
-Plots are written to `runs/example/plots/` by default. The command writes
-integrated-flux and relative-uncertainty maps for each view, a shared-scale
-energy-bin map panel for each view, and region energy spectra. The maps include
-cylindrical geometry outlines. Energy maps retain the exact configured energy
-groups rather than assigning a guessed representative energy to each group.
-The output files are `flux_xy.png`, `flux_xz.png`,
-`relative_uncertainty_xy.png`, `relative_uncertainty_xz.png`,
-`energy_bins_xy.png`, `energy_bins_xz.png`, and
-`energy_spectra_by_region.png`.
-The statepoint must come from a run made with the current mesh tallies; rerun
-the simulation after adding these tallies to an older model. Matplotlib is
-required for plotting and can be installed with
+Plots are written to `runs/reactorpath1/plots/` by default. The output contains
+labelled top-down and side-on geometry figures, spatial total-flux and
+energy-group maps, relative-uncertainty maps, x/y/z line profiles at the
+configured `visualization.marginal_*_cm` positions, region spectra, and the
+0.1 MeV detector spectrum. Line profiles use the nearest mesh-bin center to the
+requested coordinate. Run the matching simulation before plotting; plotting
+checks that statepoint mesh, detector, and energy bins agree with the supplied
+config. Matplotlib is required and can be installed with
 `python -m pip install -e ".[plot]"`.
 
 ## Tests

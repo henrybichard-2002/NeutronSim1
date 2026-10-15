@@ -77,27 +77,42 @@ def build_model(config: SimulationConfig):
     )
 
     energy_edges_ev = [edge * 1.0e6 for edge in config.tally.energy_bins_mev]
+    map_energy_edges_ev = [
+        edge * 1.0e6 for edge in config.visualization.energy_bins_mev
+    ]
 
-    def make_energy_filter():
-        return openmc.EnergyFilter(energy_edges_ev)
+    def make_energy_filter(edges_ev: list[float]):
+        return openmc.EnergyFilter(edges_ev)
 
     tallies = openmc.Tallies()
     for name, cell in tally_cells:
         tally = openmc.Tally(name=f"flux_spectrum_{name}")
-        tally.filters = [openmc.CellFilter(cell), make_energy_filter()]
+        tally.filters = [openmc.CellFilter(cell), make_energy_filter(energy_edges_ev)]
         tally.scores = ["flux"]
         tallies.append(tally)
 
     mesh_bins = config.visualization.mesh_bins
-    radius = config.geometry.world_radius_cm
-    for view, dimensions in (
-        ("xy", (mesh_bins, mesh_bins, 1)),
-        ("xz", (mesh_bins, 1, mesh_bins)),
+    radius = config.geometry.layers[-1].radius_cm
+    half_stack_height = config.geometry.layers[-1].height_cm / 2
+    half_slice = config.visualization.slice_thickness_cm / 2
+    for view, dimensions, lower_left, upper_right in (
+        (
+            "xy",
+            (mesh_bins, mesh_bins, 1),
+            (-radius, -radius, -half_slice),
+            (radius, radius, half_slice),
+        ),
+        (
+            "xz",
+            (mesh_bins, 1, mesh_bins),
+            (-radius, -half_slice, -half_stack_height),
+            (radius, half_slice, half_stack_height),
+        ),
     ):
         mesh = openmc.RegularMesh(name=f"mesh_{view}")
         mesh.dimension = dimensions
-        mesh.lower_left = (-radius, -radius, -radius)
-        mesh.upper_right = (radius, radius, radius)
+        mesh.lower_left = lower_left
+        mesh.upper_right = upper_right
 
         flux_tally = openmc.Tally(name=f"flux_map_{view}")
         flux_tally.filters = [openmc.MeshFilter(mesh)]
@@ -105,9 +120,32 @@ def build_model(config: SimulationConfig):
         tallies.append(flux_tally)
 
         spectrum_tally = openmc.Tally(name=f"energy_map_{view}")
-        spectrum_tally.filters = [openmc.MeshFilter(mesh), make_energy_filter()]
+        spectrum_tally.filters = [
+            openmc.MeshFilter(mesh),
+            make_energy_filter(map_energy_edges_ev),
+        ]
         spectrum_tally.scores = ["flux"]
         tallies.append(spectrum_tally)
+
+    detector_mesh = openmc.RegularMesh(name="spectrum_detector")
+    detector_mesh.dimension = (1, 1, 1)
+    detector_mesh.lower_left = (
+        config.detector.x_cm - config.detector.width_x_cm / 2,
+        config.detector.y_cm - config.detector.width_y_cm / 2,
+        config.detector.z_cm - config.detector.thickness_z_cm / 2,
+    )
+    detector_mesh.upper_right = (
+        config.detector.x_cm + config.detector.width_x_cm / 2,
+        config.detector.y_cm + config.detector.width_y_cm / 2,
+        config.detector.z_cm + config.detector.thickness_z_cm / 2,
+    )
+    detector_tally = openmc.Tally(name="detector_energy_spectrum")
+    detector_tally.filters = [
+        openmc.MeshFilter(detector_mesh),
+        make_energy_filter(energy_edges_ev),
+    ]
+    detector_tally.scores = ["flux"]
+    tallies.append(detector_tally)
 
     return openmc.Model(geometry=geometry, materials=list(materials.values()), settings=settings, tallies=tallies)
 
