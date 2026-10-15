@@ -88,7 +88,7 @@ class TallyConfig:
 @dataclass(frozen=True)
 class VisualizationConfig:
     mesh_bins: int = 100
-    voxel_bins: int = 32
+    voxel_bins: int = 64
     slice_thickness_cm: float = 0.4
     energy_bins_mev: tuple[float, ...] = ()
     marginal_x_cm: float = 0.0
@@ -458,7 +458,7 @@ def load_config(path: str | Path) -> SimulationConfig:
             visualization_data.get("mesh_bins", 100), "visualization.mesh_bins"
         ),
         voxel_bins=_positive_int(
-            visualization_data.get("voxel_bins", 32), "visualization.voxel_bins"
+            visualization_data.get("voxel_bins", 64), "visualization.voxel_bins"
         ),
         slice_thickness_cm=_number(
             visualization_data.get("slice_thickness_cm", 0.4),

@@ -65,14 +65,8 @@ def test_external_geometry_and_physics_tallies_are_constructed() -> None:
     )
     assert "he3_n_p_spectrum_he3_gas" in tallies
     assert "photon_heating_he3_gas" in tallies
-    assert "voxel_photon_heating" in tallies
-
-    voxel_mesh_filter = next(
-        item
-        for item in tallies["voxel_flux"].filters
-        if isinstance(item, openmc.MeshFilter)
-    )
-    assert tuple(voxel_mesh_filter.mesh.dimension) == (32, 32, 32)
+    assert "voxel_flux" not in tallies
+    assert "voxel_photon_heating" not in tallies
 
     transfer_tally = tallies["neutron_energy_transfer_he3_gas"]
     assert any(isinstance(item, openmc.EnergyoutFilter) for item in transfer_tally.filters)
@@ -86,5 +80,5 @@ def test_neutron_only_configs_do_not_add_photon_tallies() -> None:
     names = {tally.name for tally in model.tallies}
 
     assert not model.settings.photon_transport
-    assert "voxel_flux" in names
+    assert "voxel_flux" not in names
     assert "voxel_photon_heating" not in names

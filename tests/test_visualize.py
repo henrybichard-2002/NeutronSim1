@@ -1,13 +1,15 @@
 from pathlib import Path
+from dataclasses import replace
 
 import pytest
 
 from iec_neutrons.config import load_config
 from iec_neutrons.visualize import (
     PLOT_STYLE,
+    _geometry_voxel_data,
     _plot_geometry,
+    _plot_geometry_voxels,
     _plot_spatial_map,
-    _plot_voxels,
 )
 
 
@@ -62,6 +64,93 @@ def test_spatial_heatmap_uses_world_extent_and_dotted_contours(
     assert any("e" in label.get_text() for label in axis.texts)
     assert any("Detector" in label.get_text() for label in axis.texts)
     figure.clear()
+
+
+def test_spatial_heatmap_lower_scale_ignores_low_outliers(tmp_path: Path, monkeypatch) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from matplotlib.colors import LogNorm, Normalize
+    from matplotlib.patches import Circle, Rectangle
+
+    config = load_config(CONFIG)
+    world_radius = config.geometry.world_radius_cm
+    figures = []
+    original_subplots = plt.subplots
+
+    def capture_subplots(*args, **kwargs):
+        figure, axes = original_subplots(*args, **kwargs)
+        figures.append((figure, axes))
+        return figure, axes
+
+    monkeypatch.setattr(plt, "subplots", capture_subplots)
+    monkeypatch.setattr(plt, "close", lambda figure: None)
+    data = np.geomspace(1.0, 100.0, 100).reshape((10, 10))
+    data[0, 0] = 1e-12
+    _plot_spatial_map(
+        data,
+        (-world_radius, world_radius, -world_radius, world_radius),
+        "outlier test",
+        "flux",
+        tmp_path / "outlier.png",
+        config,
+        "xy",
+        LogNorm,
+        Circle,
+        Rectangle,
+        plt,
+        PLOT_STYLE,
+        Normalize,
+        show_contours=False,
+    )
+
+    image = figures[0][1].images[0]
+    expected_minimum = np.percentile(data[data > 0], PLOT_STYLE.heatmap_min_percentile)
+    assert image.norm.vmin == pytest.approx(expected_minimum)
+    assert image.norm.vmin > data.min()
+    figures[0][0].clear()
+
+
+def test_uncertainty_heatmap_uses_its_own_colormap(tmp_path: Path, monkeypatch) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from matplotlib.colors import Normalize
+    from matplotlib.patches import Circle, Rectangle
+
+    config = load_config(CONFIG)
+    radius = config.geometry.world_radius_cm
+    figures = []
+    original_subplots = plt.subplots
+
+    def capture_subplots(*args, **kwargs):
+        figure, axes = original_subplots(*args, **kwargs)
+        figures.append((figure, axes))
+        return figure, axes
+
+    monkeypatch.setattr(plt, "subplots", capture_subplots)
+    monkeypatch.setattr(plt, "close", lambda figure: None)
+    _plot_spatial_map(
+        np.arange(1, 101, dtype=float).reshape((10, 10)),
+        (-radius, radius, -radius, radius),
+        "uncertainty",
+        "relative uncertainty",
+        tmp_path / "uncertainty.png",
+        config,
+        "xy",
+        None,
+        Circle,
+        Rectangle,
+        plt,
+        PLOT_STYLE,
+        Normalize,
+        show_contours=False,
+    )
+
+    assert figures[0][1].images[0].get_cmap().name == "gnuplot2"
+    figures[0][0].clear()
 
 
 @pytest.mark.parametrize("view", ["xy", "xz"])
@@ -139,27 +228,32 @@ def test_geometry_plot_labels_external_components(tmp_path: Path, monkeypatch) -
     figure.clear()
 
 
-def test_voxel_plot_renders_3d_data(tmp_path: Path) -> None:
+def test_geometry_voxel_plot_shows_material_voxels(tmp_path: Path) -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
     import numpy as np
-    from matplotlib.colors import LogNorm, Normalize
+    from matplotlib.patches import Patch
 
-    config = load_config(CONFIG)
-    values = np.zeros((4, 4, 4))
-    values[1:3, 1:3, 1:3] = np.arange(1, 9).reshape((2, 2, 2))
-    path = _plot_voxels(
-        values,
+    config = load_config(Path(__file__).parents[1] / "config" / "he3_detector.yaml")
+    config = replace(
         config,
-        tmp_path / "voxel_flux.png",
+        visualization=replace(config.visualization, voxel_bins=12),
+    )
+    labels, materials, bounds = _geometry_voxel_data(config, np)
+    assert "D-T source volume" in materials
+    assert {"air", "aluminium", "water", "polyethylene", "helium3_gas"} <= set(materials)
+    assert np.any(labels >= 0)
+    path = _plot_geometry_voxels(
+        labels,
+        materials,
+        bounds,
+        config.visualization.voxel_bins,
+        tmp_path / "geometry_voxels.png",
         plt,
         np,
-        LogNorm,
-        Normalize,
+        Patch,
         PLOT_STYLE,
-        "Neutron scalar flux",
-        "Scalar flux",
     )
 
     assert path.is_file()

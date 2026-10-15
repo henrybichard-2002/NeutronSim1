@@ -65,11 +65,11 @@ plot panels manageable. XY and XZ maps are central-plane slab averages; the
 slab thickness is set by `visualization.slice_thickness_cm` (0.4 cm by default).
 `visualization.mesh_bins` controls spatial resolution. The source-flux spectrum
 is tallied in the configured cylindrical source volume; the remaining source
-cavity is tallied separately. XY/XZ and 3D voxel flux maps, plus the detector
-spectrum, divide OpenMC's track-length tallies by the exact mesh-cell volume to
-report scalar flux in cm-2 per source neutron. Region spectra are integrated
-track-length tallies in cm per source neutron, so their raw values should not
-be compared across regions of different volumes.
+cavity is tallied separately. XY/XZ flux maps and the detector spectrum divide
+OpenMC's track-length tallies by the exact mesh-cell volume to report scalar
+flux in cm-2 per source neutron. Region spectra are integrated track-length
+tallies in cm per source neutron, so their raw values should not be compared
+across regions of different volumes.
 
 OpenMC tallies are normalized per source particle; multiply them by the
 physical neutron emission rate when a source-rate-normalized result is needed.
@@ -119,13 +119,16 @@ iec-neutrons plot config/example.yaml runs/example/statepoint.10.h5
 ```
 
 Plot appearance is controlled in the `PLOT_STYLE` block near the top of
-`src/iec_neutrons/visualize.py`. It centralizes spatial, energy-map, voxel,
-geometry, and spectrum color schemes; spatial/spectrum axis scales; map color
-scales; and `xlim`, `ylim`, `zlim`, colorbar limits, and spectrum limits. Leave
-limits as `None` to retain the full world-radius view and automatic color
-limits.
+`src/iec_neutrons/visualize.py`. It centralizes spatial, energy-map,
+uncertainty, geometry, and spectrum color schemes; spatial/spectrum axis
+scales; map color scales; and `xlim`, `ylim`, `zlim`, colorbar limits, and
+spectrum limits. The relative-uncertainty maps use a separate `gnuplot2`
+colormap by default. Leave limits as `None` to retain the full world-radius
+view and automatic color limits.
 `zlim` controls the vertical extent on XZ plots; color limits are specified as
-`(minimum, maximum)`.
+`(minimum, maximum)`. Automatic heatmap lower color limits use the configured
+`heatmap_min_percentile` (2nd percentile by default), preventing isolated
+low-value outliers from compressing the displayed color range.
 
 ## External assemblies and interaction tallies
 
@@ -161,11 +164,15 @@ tables nor a He-3 neutron table, so the example can be built but cannot be run
 until those libraries are added and indexed. Existing reactor-path configurations
 leave photon transport disabled.
 
-`visualization.voxel_bins` sets the 3D mesh resolution in each direction
-(32 × 32 × 32 by default). New statepoints produce `voxel_flux.png`; coupled
-runs also produce `voxel_photon_heating.png`. Voxel storage and rendering grow
-cubically with this setting, so increase it gradually. XY and XZ tallies remain
-separate central-plane views.
+`visualization.voxel_bins` sets the geometry voxel resolution in each direction
+(64 × 64 × 64 by default). Plotting produces `geometry_voxels.png`, a
+material-coloured 3D voxel view of the source region, radial layers, and
+external components; vacuum remains transparent. Its bounds focus on the
+configured physical geometry rather than the full vacuum world sphere.
+Voxelization is a visualization approximation: features thinner than a voxel
+may be omitted or assigned to an adjacent material. Rendering cost grows
+cubically with this setting, so increase it gradually. XY and XZ transport
+maps remain separate central-plane views.
 
 ## Tests
 

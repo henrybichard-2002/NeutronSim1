@@ -13,9 +13,9 @@ from .config import SimulationConfig
 class PlotStyle:
     """Central defaults for plot scales, limits, and color schemes."""
 
-    spatial_cmap: str = "rainbow"
+    spatial_cmap: str = "gist_ncar"
     energy_cmap: str = "turbo"
-    voxel_cmap: str = "turbo"
+    uncertainty_cmap: str = "gnuplot2"
     geometry_cmap: str = "tab10"
     spectrum_cmap: str = "tab10"
     spectrum_color: str = "tab:blue"
@@ -24,7 +24,7 @@ class PlotStyle:
     spatial_cscale: str = "log"
     energy_cscale: str = "log"
     uncertainty_cscale: str = "linear"
-    voxel_cscale: str = "log"
+    heatmap_min_percentile: float = 2.0
     spectrum_xscale: str = "linear"
     spectrum_yscale: str = "log"
     marginal_xscale: str = "linear"
@@ -35,7 +35,6 @@ class PlotStyle:
     spatial_clim: tuple[float, float] | None = None
     energy_clim: tuple[float, float] | None = None
     uncertainty_clim: tuple[float, float] | None = None
-    voxel_clim: tuple[float, float] | None = None
     spectrum_xlim: tuple[float, float] | None = None
     spectrum_ylim: tuple[float, float] | None = None
     marginal_ylim: tuple[float, float] | None = None
@@ -176,46 +175,6 @@ def plot_results(
                 UserWarning,
                 stacklevel=2,
             )
-        voxel_flux_values = None
-        if "voxel_flux" in available_names:
-            voxel_flux_values = _voxel_values(
-                statepoint.get_tally(name="voxel_flux"),
-                config.visualization.voxel_bins,
-                np,
-                (
-                    2 * config.geometry.world_radius_cm
-                    / config.visualization.voxel_bins
-                )
-                ** 3,
-            )
-        else:
-            warnings.warn(
-                "This statepoint has no 3D voxel_flux tally; rerun the simulation "
-                "to produce a 3D flux voxel plot.",
-                UserWarning,
-                stacklevel=2,
-            )
-        voxel_photon_heating_values = None
-        if config.physics.photon_transport:
-            if "voxel_photon_heating" in available_names:
-                voxel_photon_heating_values = _voxel_values(
-                    statepoint.get_tally(name="voxel_photon_heating"),
-                    config.visualization.voxel_bins,
-                    np,
-                    (
-                        2 * config.geometry.world_radius_cm
-                        / config.visualization.voxel_bins
-                    )
-                    ** 3,
-                )
-            else:
-                warnings.warn(
-                    "This statepoint has no voxel_photon_heating tally; rerun the "
-                    "coupled neutron-photon simulation to produce its deposition plot.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-
     radius = config.geometry.world_radius_cm
     total_edges = np.asarray(config.tally.energy_bins_mev)
     map_edges = np.asarray(config.visualization.energy_bins_mev)
@@ -372,36 +331,20 @@ def plot_results(
             PLOT_STYLE,
         )
     )
-    if voxel_flux_values is not None:
-        paths.append(
-            _plot_voxels(
-                voxel_flux_values,
-                config,
-                destination / "voxel_flux.png",
-                plt,
-                np,
-                LogNorm,
-                Normalize,
-                PLOT_STYLE,
-                "Neutron scalar flux",
-                "Scalar flux (cm$^{-2}$ per source neutron)",
-            )
+    voxel_labels, voxel_materials, voxel_bounds = _geometry_voxel_data(config, np)
+    paths.append(
+        _plot_geometry_voxels(
+            voxel_labels,
+            voxel_materials,
+            voxel_bounds,
+            config.visualization.voxel_bins,
+            destination / "geometry_voxels.png",
+            plt,
+            np,
+            Patch,
+            PLOT_STYLE,
         )
-    if voxel_photon_heating_values is not None:
-        paths.append(
-            _plot_voxels(
-                voxel_photon_heating_values,
-                config,
-                destination / "voxel_photon_heating.png",
-                plt,
-                np,
-                LogNorm,
-                Normalize,
-                PLOT_STYLE,
-                "Photon energy deposition",
-                "Energy deposition (eV per source neutron per cm$^3$)",
-            )
-        )
+    )
     return paths
 
 
@@ -432,73 +375,140 @@ def _mesh_values(tally, view: str, energy_groups: int, np, value: str = "mean"):
     return np.asarray(result, dtype=float)
 
 
-def _voxel_values(
-    tally, bins: int, np, cell_volume_cm3: float, value: str = "mean"
-):
-    data = np.asarray(
-        tally.get_reshaped_data(value=value, expand_dims=True), dtype=float
+def _geometry_voxel_data(config: SimulationConfig, np):
+    radial_extent = max(
+        config.geometry.cavity_radius_cm,
+        *(layer.radius_cm for layer in config.geometry.layers),
     )
-    values = np.squeeze(data)
-    expected_shape = (bins, bins, bins)
-    if values.shape != expected_shape:
-        raise ValueError(
-            f"Tally {tally.name!r} has voxel dimensions {values.shape}; "
-            f"expected {expected_shape}"
+    vertical_extent = max(
+        config.geometry.cavity_height_cm / 2,
+        config.source.height_cm / 2,
+        *(layer.height_cm / 2 for layer in config.geometry.layers),
+    )
+    bounds = [
+        [-radial_extent, radial_extent],
+        [-radial_extent, radial_extent],
+        [-vertical_extent, vertical_extent],
+    ]
+    component_masks = []
+    for component in config.geometry.components:
+        center = component.center_cm
+        if component.shape == "box":
+            half_extents = tuple(size / 2 for size in component.dimensions_cm)
+        else:
+            radius, length = component.dimensions_cm
+            half_extents = tuple(
+                length / 2 if axis == component.axis else radius
+                for axis in ("x", "y", "z")
+            )
+        for axis in range(3):
+            bounds[axis][0] = min(
+                bounds[axis][0], center[axis] - half_extents[axis]
+            )
+            bounds[axis][1] = max(
+                bounds[axis][1], center[axis] + half_extents[axis]
+            )
+
+    edges = [
+        np.linspace(lower, upper, config.visualization.voxel_bins + 1)
+        for lower, upper in bounds
+    ]
+    centers = [(edge[:-1] + edge[1:]) / 2 for edge in edges]
+    x, y, z = np.meshgrid(*centers, indexing="ij")
+    within_world = x * x + y * y + z * z < config.geometry.world_radius_cm**2
+
+    material_names = list(
+        dict.fromkeys(
+            [layer.material for layer in config.geometry.layers]
+            + [component.material for component in config.geometry.components]
         )
-    return values / cell_volume_cm3
+    )
+    category_names = ["D-T source volume", *material_names]
+    category_ids = {name: index + 1 for index, name in enumerate(material_names)}
+    source_id = 0
+    labels = np.full(x.shape, -1, dtype=np.int16)
+
+    cavity = (
+        (x * x + y * y <= config.geometry.cavity_radius_cm**2)
+        & (np.abs(z) <= config.geometry.cavity_height_cm / 2)
+    )
+    source = (
+        (x * x + y * y <= config.source.radius_cm**2)
+        & (np.abs(z) <= config.source.height_cm / 2)
+        & within_world
+    )
+    labels[source] = source_id
+    previous_region = cavity
+    for layer in config.geometry.layers:
+        current_region = (
+            (x * x + y * y <= layer.radius_cm**2)
+            & (np.abs(z) <= layer.height_cm / 2)
+        )
+        layer_region = current_region & ~previous_region & within_world
+        labels[layer_region] = category_ids[layer.material]
+        previous_region = current_region
+
+    for component in config.geometry.components:
+        cx, cy, cz = component.center_cm
+        if component.shape == "box":
+            sx, sy, sz = component.dimensions_cm
+            mask = (
+                (np.abs(x - cx) <= sx / 2)
+                & (np.abs(y - cy) <= sy / 2)
+                & (np.abs(z - cz) <= sz / 2)
+            )
+        else:
+            radius, length = component.dimensions_cm
+            if component.axis == "x":
+                mask = (
+                    ((y - cy) ** 2 + (z - cz) ** 2 <= radius**2)
+                    & (np.abs(x - cx) <= length / 2)
+                )
+            elif component.axis == "y":
+                mask = (
+                    ((x - cx) ** 2 + (z - cz) ** 2 <= radius**2)
+                    & (np.abs(y - cy) <= length / 2)
+                )
+            else:
+                mask = (
+                    ((x - cx) ** 2 + (y - cy) ** 2 <= radius**2)
+                    & (np.abs(z - cz) <= length / 2)
+                )
+        component_masks.append(mask)
+
+    for index, component in enumerate(config.geometry.components):
+        later_components = component_masks[index + 1 :]
+        mask = component_masks[index] & ~previous_region & within_world
+        if later_components:
+            mask &= ~np.logical_or.reduce(later_components)
+        labels[mask] = category_ids[component.material]
+    return labels, category_names, tuple(tuple(axis) for axis in bounds)
 
 
-def _plot_voxels(
-    data,
-    config,
-    path,
+def _plot_geometry_voxels(
+    labels,
+    category_names,
+    bounds,
+    bins: int,
+    path: Path,
     plt,
     np,
-    LogNorm,
-    Normalize,
+    Patch,
     style: PlotStyle,
-    title,
-    colorbar_label,
 ) -> Path:
-    from matplotlib.cm import ScalarMappable
+    filled = labels >= 0
+    if not np.any(filled):
+        raise ValueError("The configured geometry does not intersect the voxel grid")
+    palette = plt.get_cmap(style.geometry_cmap, len(category_names))
+    facecolors = palette(np.maximum(labels, 0))
+    facecolors[..., 3] = np.where(filled, 1.0, 0.0)
+    edges = [
+        np.linspace(lower, upper, bins + 1)
+        for lower, upper in bounds
+    ]
+    grid_x, grid_y, grid_z = np.meshgrid(*edges, indexing="ij")
 
-    radius = config.geometry.world_radius_cm
-    finite_positive = data[np.isfinite(data) & (data > 0)]
-    if finite_positive.size:
-        low = float(finite_positive.min())
-        high = float(finite_positive.max())
-    else:
-        low, high = 0.0, 1.0
-        warnings.warn(
-            f"The {title.lower()} voxel tally contains no positive values.",
-            UserWarning,
-            stacklevel=2,
-        )
-    if style.voxel_clim is not None:
-        low, high = style.voxel_clim
-    if high <= low and style.voxel_cscale == "log":
-        low = max(low, 1e-30)
-        high = low * (1 + 1e-12)
-    elif high <= low:
-        high = low * (1 + 1e-12) if style.voxel_cscale == "log" else low + 1.0
-    norm = (
-        LogNorm(vmin=max(low, float(finite_positive.min()) / 2), vmax=high)
-        if style.voxel_cscale == "log" and finite_positive.size
-        else Normalize(vmin=low, vmax=high)
-    )
-    if style.voxel_cscale == "log" and not finite_positive.size:
-        norm = Normalize(vmin=low, vmax=high)
-    cmap = plt.get_cmap(style.voxel_cmap)
-    filled = np.isfinite(data) & (data > 0)
-    color_values = np.where(filled, np.maximum(data, low), low).ravel()
-    facecolors = cmap(norm(color_values)).reshape((*data.shape, 4))
-    facecolors[..., 3] = np.where(filled, 0.78, 0.0)
-    coordinates = np.linspace(-radius, radius, data.shape[0] + 1)
-    grid_x, grid_y, grid_z = np.meshgrid(
-        coordinates, coordinates, coordinates, indexing="ij"
-    )
-
-    figure = plt.figure(figsize=(10, 8), constrained_layout=True)
+    figure = plt.figure(figsize=(11, 9), constrained_layout=True)
     axis = figure.add_subplot(111, projection="3d")
     axis.voxels(
         grid_x,
@@ -509,12 +519,22 @@ def _plot_voxels(
         edgecolor=None,
         shade=False,
     )
-    axis.set(xlim=(-radius, radius), ylim=(-radius, radius), zlim=(-radius, radius))
+    for axis_index, (lower, upper) in enumerate(bounds):
+        setter = (axis.set_xlim, axis.set_ylim, axis.set_zlim)[axis_index]
+        setter(lower, upper)
+    axis.set_box_aspect(tuple(upper - lower for lower, upper in bounds))
     axis.set_xlabel("x (cm)")
     axis.set_ylabel("y (cm)")
     axis.set_zlabel("z (cm)")
-    axis.set_title(f"{title} 3D voxel map")
-    figure.colorbar(ScalarMappable(norm=norm, cmap=cmap), ax=axis, label=colorbar_label)
+    axis.set_title(f"3D voxel geometry ({bins} × {bins} × {bins} voxels)")
+    axis.legend(
+        handles=[
+            Patch(facecolor=palette(index), edgecolor="black", label=name)
+            for index, name in enumerate(category_names)
+        ],
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+    )
     figure.savefig(str(path), dpi=180)
     plt.close(figure)
     return path
@@ -890,19 +910,18 @@ def _plot_spatial_map(
     masked = np.ma.masked_invalid(data)
     positive = masked.compressed()
     positive = positive[positive > 0]
-    low = float(positive.min()) if positive.size else 0.0
+    low = _heatmap_minimum(positive, style.heatmap_min_percentile, np)
     high = float(positive.max()) if positive.size else 1.0
     color_scale = style.spatial_cscale if LogNorm is not None else style.uncertainty_cscale
     color_limits = style.spatial_clim if LogNorm is not None else style.uncertainty_clim
     if color_limits is not None:
         low, high = color_limits
-    elif LogNorm is None:
-        low = min(low, 0.0)
     if high <= low:
         high = low + 1.0
-    options = {"cmap": style.spatial_cmap}
+    color_map = style.spatial_cmap if LogNorm is not None else style.uncertainty_cmap
+    options = {"cmap": color_map}
     if color_scale == "log" and LogNorm is not None and positive.size:
-        options["norm"] = LogNorm(vmin=max(low, positive.min() / 2), vmax=high)
+        options["norm"] = LogNorm(vmin=low, vmax=high)
     else:
         options["norm"] = Normalize(vmin=low, vmax=high)
     image = axis.imshow(masked, origin="lower", extent=extent, aspect="equal", **options)
@@ -951,13 +970,14 @@ def _plot_energy_map(
     )
     norm = None
     if positives.size:
-        low, high = float(positives.min()), float(positives.max())
+        low = _heatmap_minimum(positives, style.heatmap_min_percentile, np)
+        high = float(positives.max())
         if style.energy_clim is not None:
             low, high = style.energy_clim
         elif high <= low:
             high = low + 1.0
         norm = (
-            LogNorm(vmin=max(low, float(positives.min()) / 2), vmax=high)
+            LogNorm(vmin=low, vmax=high)
             if style.energy_cscale == "log" and LogNorm is not None
             else Normalize(vmin=low, vmax=high)
         )
@@ -997,6 +1017,14 @@ def _plot_energy_map(
     figure.savefig(str(path), dpi=180)
     plt.close(figure)
     return path
+
+
+def _heatmap_minimum(positive_values, percentile: float, np) -> float:
+    if not 0 <= percentile < 100:
+        raise ValueError("PLOT_STYLE.heatmap_min_percentile must be in [0, 100)")
+    if not positive_values.size:
+        return 0.0
+    return float(np.percentile(positive_values, percentile))
 
 
 def _nearest_index(edges, coordinate: float) -> int:

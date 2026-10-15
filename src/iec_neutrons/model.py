@@ -267,31 +267,6 @@ def build_model(config: SimulationConfig):
         spectrum_tally.scores = ["flux"]
         tallies.append(spectrum_tally)
 
-    voxel_mesh = openmc.RegularMesh(name="mesh_voxel_flux")
-    voxel_mesh.dimension = (
-        config.visualization.voxel_bins,
-        config.visualization.voxel_bins,
-        config.visualization.voxel_bins,
-    )
-    voxel_mesh.lower_left = (-radius, -radius, -radius)
-    voxel_mesh.upper_right = (radius, radius, radius)
-    voxel_flux = openmc.Tally(name="voxel_flux")
-    voxel_flux.filters = [
-        openmc.MeshFilter(voxel_mesh),
-        openmc.ParticleFilter("neutron"),
-    ]
-    voxel_flux.scores = ["flux"]
-    tallies.append(voxel_flux)
-
-    if config.physics.photon_transport:
-        voxel_photon_heating = openmc.Tally(name="voxel_photon_heating")
-        voxel_photon_heating.filters = [
-            openmc.MeshFilter(voxel_mesh),
-            openmc.ParticleFilter("photon"),
-        ]
-        voxel_photon_heating.scores = ["heating"]
-        tallies.append(voxel_photon_heating)
-
     detector_mesh = openmc.RegularMesh(name="spectrum_detector")
     detector_mesh.dimension = (1, 1, 1)
     detector_mesh.lower_left = (

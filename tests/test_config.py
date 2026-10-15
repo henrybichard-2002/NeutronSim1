@@ -17,7 +17,7 @@ def test_example_configuration_loads() -> None:
     assert config.materials["polyethylene"].thermal_scattering == ("c_H_in_CH2",)
     assert config.tally.energy_bins_mev[0] == 0.0
     assert config.visualization.mesh_bins == 100
-    assert config.visualization.voxel_bins == 32
+    assert config.visualization.voxel_bins == 64
     assert not config.physics.photon_transport
 
 
