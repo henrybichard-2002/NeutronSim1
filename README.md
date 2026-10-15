@@ -52,10 +52,36 @@ iec-neutrons run config/example.yaml
 
 Both commands accept `--output-dir`; by default files go to
 `runs/example/`. The model scores an energy-binned flux spectrum in the source
-cavity and each moderator layer. OpenMC tallies are normalized per source
-particle; multiply them by the physical neutron emission rate when a
-source-rate-normalized result is needed. The run creates a statepoint HDF5 file,
-which can be analyzed with OpenMC's Python API.
+cavity and each moderator layer, plus mesh tallies for top-down (XY) and
+side-on (XZ) projections. The projection bins average flux over their collapsed
+axis: XY averages over the full z extent and XZ averages over the full y extent.
+Set `visualization.mesh_bins` to change the number of spatial bins on each
+resolved axis.
+
+OpenMC tallies are normalized per source particle; multiply them by the
+physical neutron emission rate when a source-rate-normalized result is needed.
+The run creates a statepoint HDF5 file, which can be analyzed with OpenMC's
+Python API.
+
+Plot the flux and energy results from the statepoint:
+
+```sh
+iec-neutrons plot config/example.yaml runs/example/statepoint.10.h5
+```
+
+Plots are written to `runs/example/plots/` by default. The command writes
+integrated-flux and relative-uncertainty maps for each view, a shared-scale
+energy-bin map panel for each view, and region energy spectra. The maps include
+cylindrical geometry outlines. Energy maps retain the exact configured energy
+groups rather than assigning a guessed representative energy to each group.
+The output files are `flux_xy.png`, `flux_xz.png`,
+`relative_uncertainty_xy.png`, `relative_uncertainty_xz.png`,
+`energy_bins_xy.png`, `energy_bins_xz.png`, and
+`energy_spectra_by_region.png`.
+The statepoint must come from a run made with the current mesh tallies; rerun
+the simulation after adding these tallies to an older model. Matplotlib is
+required for plotting and can be installed with
+`python -m pip install -e ".[plot]"`.
 
 ## Tests
 

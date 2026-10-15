@@ -42,3 +42,8 @@ settings:
 
 tally:
   energy_bins_mev: [0.0, 0.001, 0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 14.2]
+
+visualization:
+  # Number of mesh voxels on each resolved axis. Each 2D view collapses the
+  # remaining axis into one bin spanning the full spherical model boundary.
+  mesh_bins: 100

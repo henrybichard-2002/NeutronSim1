@@ -59,12 +59,18 @@ class TallyConfig:
 
 
 @dataclass(frozen=True)
+class VisualizationConfig:
+    mesh_bins: int = 100
+
+
+@dataclass(frozen=True)
 class SimulationConfig:
     source: SourceConfig
     geometry: GeometryConfig
     materials: dict[str, MaterialConfig]
     settings: SettingsConfig
     tally: TallyConfig
+    visualization: VisualizationConfig
 
 
 def _mapping(value: Any, path: str) -> dict[str, Any]:
@@ -115,7 +121,12 @@ def load_config(path: str | Path) -> SimulationConfig:
     except yaml.YAMLError as exc:
         raise ConfigError(f"could not parse YAML: {exc}") from exc
     root = _mapping(raw_config, "configuration")
-    _keys(root, {"source", "geometry", "materials", "settings", "tally"}, set(), "configuration")
+    _keys(
+        root,
+        {"source", "geometry", "materials", "settings", "tally"},
+        {"visualization"},
+        "configuration",
+    )
 
     source_data = _mapping(root["source"], "source")
     _keys(source_data, {"radius_cm", "height_cm", "energy_mev"}, set(), "source")
@@ -235,4 +246,12 @@ def load_config(path: str | Path) -> SimulationConfig:
         raise ConfigError("tally.energy_bins_mev must be strictly increasing")
     tally = TallyConfig(bins)
 
-    return SimulationConfig(source, geometry, materials, settings, tally)
+    visualization_data = _mapping(root.get("visualization", {}), "visualization")
+    _keys(visualization_data, set(), {"mesh_bins"}, "visualization")
+    visualization = VisualizationConfig(
+        mesh_bins=_positive_int(
+            visualization_data.get("mesh_bins", 100), "visualization.mesh_bins"
+        )
+    )
+
+    return SimulationConfig(source, geometry, materials, settings, tally, visualization)
