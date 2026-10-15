@@ -13,8 +13,9 @@ from .config import SimulationConfig
 class PlotStyle:
     """Central defaults for plot scales, limits, and color schemes."""
 
-    spatial_cmap: str = "viridis"
-    energy_cmap: str = "viridis"
+    spatial_cmap: str = "rainbow"
+    energy_cmap: str = "turbo"
+    voxel_cmap: str = "turbo"
     geometry_cmap: str = "tab10"
     spectrum_cmap: str = "tab10"
     spectrum_color: str = "tab:blue"
@@ -23,6 +24,7 @@ class PlotStyle:
     spatial_cscale: str = "log"
     energy_cscale: str = "log"
     uncertainty_cscale: str = "linear"
+    voxel_cscale: str = "log"
     spectrum_xscale: str = "linear"
     spectrum_yscale: str = "log"
     marginal_xscale: str = "linear"
@@ -33,6 +35,7 @@ class PlotStyle:
     spatial_clim: tuple[float, float] | None = None
     energy_clim: tuple[float, float] | None = None
     uncertainty_clim: tuple[float, float] | None = None
+    voxel_clim: tuple[float, float] | None = None
     spectrum_xlim: tuple[float, float] | None = None
     spectrum_ylim: tuple[float, float] | None = None
     marginal_ylim: tuple[float, float] | None = None
@@ -92,14 +95,26 @@ def plot_results(
             map_tallies, config, np, openmc
         )
 
+        map_cell_volumes_cm3 = {
+            view: (
+                (extent[1] - extent[0])
+                / config.visualization.mesh_bins
+                * (extent[3] - extent[2])
+                / config.visualization.mesh_bins
+                * config.visualization.slice_thickness_cm
+            )
+            for view, extent in mesh_extents.items()
+        }
         flux_maps = {
             view: _mesh_values(map_tallies[f"flux_{view}"], view, 1, np)[..., 0]
+            / map_cell_volumes_cm3[view]
             for view in ("xy", "xz")
         }
         flux_std_devs = {
             view: _mesh_values(
                 map_tallies[f"flux_{view}"], view, 1, np, value="std_dev"
             )[..., 0]
+            / map_cell_volumes_cm3[view]
             for view in ("xy", "xz")
         }
         energy_maps = {
@@ -109,11 +124,12 @@ def plot_results(
                 len(config.visualization.energy_bins_mev) - 1,
                 np,
             )
+            / map_cell_volumes_cm3[view]
             for view in ("xy", "xz")
         }
         spectra = {}
         if "flux_spectrum_source" in available_names:
-            spectra["Source flux (source volume)"] = _spectrum_values(
+            spectra["Source volume"] = _spectrum_values(
                 statepoint.get_tally(name="flux_spectrum_source"), np
             )
             spectra["Source cavity outside source volume"] = _spectrum_values(
@@ -137,11 +153,21 @@ def plot_results(
                 statepoint.get_tally(name=f"flux_spectrum_{layer.name}"), np
             )
         detector_available = "detector_energy_spectrum" in available_names
+        detector_mean = None
+        detector_std_dev = None
         if detector_available:
             detector_tally = statepoint.get_tally(name="detector_energy_spectrum")
             _validate_detector_tally(detector_tally, config, np, openmc)
-            detector_mean = _spectrum_values(detector_tally, np)
-            detector_std_dev = _spectrum_values(detector_tally, np, value="std_dev")
+            detector_volume_cm3 = (
+                config.detector.width_x_cm
+                * config.detector.width_y_cm
+                * config.detector.thickness_z_cm
+            )
+            detector_mean = _spectrum_values(detector_tally, np) / detector_volume_cm3
+            detector_std_dev = (
+                _spectrum_values(detector_tally, np, value="std_dev")
+                / detector_volume_cm3
+            )
         else:
             warnings.warn(
                 "This statepoint has no detector_energy_spectrum tally. "
@@ -150,6 +176,45 @@ def plot_results(
                 UserWarning,
                 stacklevel=2,
             )
+        voxel_flux_values = None
+        if "voxel_flux" in available_names:
+            voxel_flux_values = _voxel_values(
+                statepoint.get_tally(name="voxel_flux"),
+                config.visualization.voxel_bins,
+                np,
+                (
+                    2 * config.geometry.world_radius_cm
+                    / config.visualization.voxel_bins
+                )
+                ** 3,
+            )
+        else:
+            warnings.warn(
+                "This statepoint has no 3D voxel_flux tally; rerun the simulation "
+                "to produce a 3D flux voxel plot.",
+                UserWarning,
+                stacklevel=2,
+            )
+        voxel_photon_heating_values = None
+        if config.physics.photon_transport:
+            if "voxel_photon_heating" in available_names:
+                voxel_photon_heating_values = _voxel_values(
+                    statepoint.get_tally(name="voxel_photon_heating"),
+                    config.visualization.voxel_bins,
+                    np,
+                    (
+                        2 * config.geometry.world_radius_cm
+                        / config.visualization.voxel_bins
+                    )
+                    ** 3,
+                )
+            else:
+                warnings.warn(
+                    "This statepoint has no voxel_photon_heating tally; rerun the "
+                    "coupled neutron-photon simulation to produce its deposition plot.",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
     radius = config.geometry.world_radius_cm
     total_edges = np.asarray(config.tally.energy_bins_mev)
@@ -203,6 +268,7 @@ def plot_results(
                 plt,
                 PLOT_STYLE,
                 Normalize,
+                show_contours=True,
             )
         )
         paths.append(
@@ -220,6 +286,7 @@ def plot_results(
                 plt,
                 PLOT_STYLE,
                 Normalize,
+                show_contours=False,
             )
         )
         paths.append(
@@ -258,15 +325,15 @@ def plot_results(
         _plot_spectrum(
             spectra,
             total_edges,
-            "Region energy spectra",
-            "Flux (cm$^{-2}$ per source neutron)",
+            "Region-integrated energy spectra",
+            "Track length (cm per source neutron)",
             destination / "energy_spectra_by_region.png",
             plt,
             PLOT_STYLE,
         )
     )
 
-    if detector_available:
+    if detector_mean is not None and detector_std_dev is not None:
         paths.append(
             _plot_detector_spectrum(
                 detector_mean,
@@ -305,6 +372,36 @@ def plot_results(
             PLOT_STYLE,
         )
     )
+    if voxel_flux_values is not None:
+        paths.append(
+            _plot_voxels(
+                voxel_flux_values,
+                config,
+                destination / "voxel_flux.png",
+                plt,
+                np,
+                LogNorm,
+                Normalize,
+                PLOT_STYLE,
+                "Neutron scalar flux",
+                "Scalar flux (cm$^{-2}$ per source neutron)",
+            )
+        )
+    if voxel_photon_heating_values is not None:
+        paths.append(
+            _plot_voxels(
+                voxel_photon_heating_values,
+                config,
+                destination / "voxel_photon_heating.png",
+                plt,
+                np,
+                LogNorm,
+                Normalize,
+                PLOT_STYLE,
+                "Photon energy deposition",
+                "Energy deposition (eV per source neutron per cm$^3$)",
+            )
+        )
     return paths
 
 
@@ -333,6 +430,94 @@ def _mesh_values(tally, view: str, energy_groups: int, np, value: str = "mean"):
             f"expected {energy_groups}"
         )
     return np.asarray(result, dtype=float)
+
+
+def _voxel_values(
+    tally, bins: int, np, cell_volume_cm3: float, value: str = "mean"
+):
+    data = np.asarray(
+        tally.get_reshaped_data(value=value, expand_dims=True), dtype=float
+    )
+    values = np.squeeze(data)
+    expected_shape = (bins, bins, bins)
+    if values.shape != expected_shape:
+        raise ValueError(
+            f"Tally {tally.name!r} has voxel dimensions {values.shape}; "
+            f"expected {expected_shape}"
+        )
+    return values / cell_volume_cm3
+
+
+def _plot_voxels(
+    data,
+    config,
+    path,
+    plt,
+    np,
+    LogNorm,
+    Normalize,
+    style: PlotStyle,
+    title,
+    colorbar_label,
+) -> Path:
+    from matplotlib.cm import ScalarMappable
+
+    radius = config.geometry.world_radius_cm
+    finite_positive = data[np.isfinite(data) & (data > 0)]
+    if finite_positive.size:
+        low = float(finite_positive.min())
+        high = float(finite_positive.max())
+    else:
+        low, high = 0.0, 1.0
+        warnings.warn(
+            f"The {title.lower()} voxel tally contains no positive values.",
+            UserWarning,
+            stacklevel=2,
+        )
+    if style.voxel_clim is not None:
+        low, high = style.voxel_clim
+    if high <= low and style.voxel_cscale == "log":
+        low = max(low, 1e-30)
+        high = low * (1 + 1e-12)
+    elif high <= low:
+        high = low * (1 + 1e-12) if style.voxel_cscale == "log" else low + 1.0
+    norm = (
+        LogNorm(vmin=max(low, float(finite_positive.min()) / 2), vmax=high)
+        if style.voxel_cscale == "log" and finite_positive.size
+        else Normalize(vmin=low, vmax=high)
+    )
+    if style.voxel_cscale == "log" and not finite_positive.size:
+        norm = Normalize(vmin=low, vmax=high)
+    cmap = plt.get_cmap(style.voxel_cmap)
+    filled = np.isfinite(data) & (data > 0)
+    color_values = np.where(filled, np.maximum(data, low), low).ravel()
+    facecolors = cmap(norm(color_values)).reshape((*data.shape, 4))
+    facecolors[..., 3] = np.where(filled, 0.78, 0.0)
+    coordinates = np.linspace(-radius, radius, data.shape[0] + 1)
+    grid_x, grid_y, grid_z = np.meshgrid(
+        coordinates, coordinates, coordinates, indexing="ij"
+    )
+
+    figure = plt.figure(figsize=(10, 8), constrained_layout=True)
+    axis = figure.add_subplot(111, projection="3d")
+    axis.voxels(
+        grid_x,
+        grid_y,
+        grid_z,
+        filled,
+        facecolors=facecolors,
+        edgecolor=None,
+        shade=False,
+    )
+    axis.set(xlim=(-radius, radius), ylim=(-radius, radius), zlim=(-radius, radius))
+    axis.set_xlabel("x (cm)")
+    axis.set_ylabel("y (cm)")
+    axis.set_zlabel("z (cm)")
+    axis.set_title(f"{title} 3D voxel map")
+    figure.colorbar(ScalarMappable(norm=norm, cmap=cmap), ax=axis, label=colorbar_label)
+    figure.savefig(str(path), dpi=180)
+    plt.close(figure)
+    return path
 
 
 def _spectrum_values(tally, np, value: str = "mean"):
@@ -497,6 +682,18 @@ def _geometry_outlines(config: SimulationConfig, view: str, Circle, Rectangle):
                 linestyle="--",
             )
         )
+        outlines.extend(
+            _component_patch(
+                component,
+                view,
+                Circle,
+                Rectangle,
+                fill=False,
+                edgecolor="white",
+                linewidth=0.9,
+            )
+            for component in config.geometry.components
+        )
         outlines.append(world_boundary)
         return outlines
 
@@ -542,10 +739,47 @@ def _geometry_outlines(config: SimulationConfig, view: str, Circle, Rectangle):
             linestyle="--",
         )
     )
+    outlines.extend(
+        _component_patch(
+            component,
+            view,
+            Circle,
+            Rectangle,
+            fill=False,
+            edgecolor="white",
+            linewidth=0.9,
+        )
+        for component in config.geometry.components
+    )
     outlines.append(world_boundary)
     return outlines
 
+def _component_patch(component, view, Circle, Rectangle, **style):
+    horizontal = 0
+    vertical = 1 if view == "xy" else 2
+    center = component.center_cm
+    if component.shape == "box":
+        width = component.dimensions_cm[horizontal]
+        height = component.dimensions_cm[vertical]
+        return Rectangle(
+            (center[horizontal] - width / 2, center[vertical] - height / 2),
+            width,
+            height,
+            **style,
+        )
 
+    radius, length = component.dimensions_cm
+    axis_index = {"x": 0, "y": 1, "z": 2}[component.axis]
+    if axis_index not in {horizontal, vertical}:
+        return Circle((center[horizontal], center[vertical]), radius, **style)
+    width = length if axis_index == horizontal else 2 * radius
+    height = length if axis_index == vertical else 2 * radius
+    return Rectangle(
+        (center[horizontal] - width / 2, center[vertical] - height / 2),
+        width,
+        height,
+        **style,
+    )
 def _add_dotted_contours(axis, data, extent, np) -> None:
     field = np.ma.masked_where(~np.isfinite(data) | (data <= 0), data)
     positive = field.compressed()
@@ -647,6 +881,8 @@ def _plot_spatial_map(
     plt,
     style: PlotStyle,
     Normalize,
+    *,
+    show_contours: bool,
 ) -> Path:
     import numpy as np
 
@@ -672,7 +908,8 @@ def _plot_spatial_map(
     image = axis.imshow(masked, origin="lower", extent=extent, aspect="equal", **options)
     for outline in _geometry_outlines(config, view, Circle, Rectangle):
         axis.add_patch(outline)
-    _add_dotted_contours(axis, masked, extent, np)
+    if show_contours:
+        _add_dotted_contours(axis, masked, extent, np)
     _detector_overlay(axis, config, view, Rectangle)
     axis.set_xlabel("x (cm)")
     axis.set_ylabel("y (cm)" if view == "xy" else "z (cm)")
@@ -743,7 +980,6 @@ def _plot_energy_map(
         )
         for outline in _geometry_outlines(config, view, Circle, Rectangle):
             axis.add_patch(outline)
-        _add_dotted_contours(axis, field, extent, np)
         _detector_overlay(axis, config, view, Rectangle)
         _set_spatial_axes(axis, view, style, config.geometry.world_radius_cm)
         axis.set_title(f"{edges[index]:g}-{edges[index + 1]:g} MeV")
@@ -844,6 +1080,8 @@ def _plot_marginals(
 
 
 def _plot_spectrum(spectra, edges, title, ylabel, path, plt, style: PlotStyle) -> Path:
+    import numpy as np
+
     figure, axis = plt.subplots(figsize=(10, 6), constrained_layout=True)
     axis.set_prop_cycle(
         color=[
@@ -853,7 +1091,9 @@ def _plot_spectrum(spectra, edges, title, ylabel, path, plt, style: PlotStyle) -
     )
     for name, values in spectra.items():
         axis.stairs(values, edges, label=name, linewidth=1.5)
-    axis.set_yscale(style.spectrum_yscale)
+    has_positive_values = _set_spectrum_yscale(
+        axis, [*spectra.values()], style.spectrum_yscale, np
+    )
     axis.set_xscale(style.spectrum_xscale)
     axis.set_xlim(*(style.spectrum_xlim or (edges[0], edges[-1])))
     if style.spectrum_ylim is not None:
@@ -861,6 +1101,15 @@ def _plot_spectrum(spectra, edges, title, ylabel, path, plt, style: PlotStyle) -
     axis.set_xlabel("Neutron energy (MeV)")
     axis.set_ylabel(ylabel)
     axis.set_title(title)
+    if not has_positive_values:
+        axis.text(
+            0.5,
+            0.5,
+            "No positive tally values",
+            transform=axis.transAxes,
+            ha="center",
+            va="center",
+        )
     axis.grid(True, which="both", alpha=0.25)
     axis.legend()
     figure.savefig(str(path), dpi=180)
@@ -884,7 +1133,9 @@ def _plot_detector_spectrum(
         alpha=0.2,
         label="1 standard deviation",
     )
-    axis.set_yscale(style.spectrum_yscale)
+    has_positive_values = _set_spectrum_yscale(
+        axis, [values, std_dev], style.spectrum_yscale, np
+    )
     axis.set_xscale(style.spectrum_xscale)
     axis.set_xlim(*(style.spectrum_xlim or (edges[0], edges[-1])))
     if style.spectrum_ylim is not None:
@@ -903,6 +1154,15 @@ def _plot_detector_spectrum(
         f"at x={config.detector.x_cm:g}, y={config.detector.y_cm:g}, "
         f"z={config.detector.z_cm:g} cm"
     )
+    if not has_positive_values:
+        axis.text(
+            0.5,
+            0.5,
+            "No positive detector flux sampled",
+            transform=axis.transAxes,
+            ha="center",
+            va="center",
+        )
     axis.grid(True, which="both", alpha=0.25)
     axis.legend()
     figure.savefig(str(path), dpi=180)
@@ -910,11 +1170,27 @@ def _plot_detector_spectrum(
     return path
 
 
+def _set_spectrum_yscale(axis, datasets, requested_scale: str, np) -> bool:
+    has_positive_values = any(np.any(values > 0) for values in datasets)
+    scale = (
+        "linear"
+        if requested_scale == "log" and not has_positive_values
+        else requested_scale
+    )
+    axis.set_yscale(scale)
+    return has_positive_values
+
+
 def _material_colors(config: SimulationConfig, style: PlotStyle):
     import matplotlib.pyplot as plt
 
     palette = plt.get_cmap(style.geometry_cmap)
-    names = list(dict.fromkeys(layer.material for layer in config.geometry.layers))
+    names = list(
+        dict.fromkeys(
+            [layer.material for layer in config.geometry.layers]
+            + [component.material for component in config.geometry.components]
+        )
+    )
     return {name: palette(index % 10) for index, name in enumerate(names)}
 
 
@@ -937,6 +1213,16 @@ def _geometry_legend(config: SimulationConfig, Patch, colors):
             ),
         )
         for index, layer in enumerate(config.geometry.layers, start=1)
+    )
+    entries.extend(
+        Patch(
+            facecolor=colors[component.material],
+            edgecolor="black",
+            label=f"{index}. {component.name}: {component.material} ({component.shape})",
+        )
+        for index, component in enumerate(
+            config.geometry.components, start=len(config.geometry.layers) + 1
+        )
     )
     entries.extend(
         (
@@ -980,6 +1266,7 @@ def _plot_geometry(
         axis.add_patch(
             Circle((0, 0), config.source.radius_cm, facecolor="0.2", edgecolor="black")
         )
+        _add_component_patches(axis, config, view, Circle, Rectangle, colors)
         axis.add_patch(
             Circle(
                 (0, 0),
@@ -1019,6 +1306,7 @@ def _plot_geometry(
                 edgecolor="black",
             )
         )
+        _add_component_patches(axis, config, view, Circle, Rectangle, colors)
         axis.add_patch(
             Circle(
                 (0, 0),
@@ -1048,3 +1336,27 @@ def _plot_geometry(
     figure.savefig(str(path), dpi=180)
     plt.close(figure)
     return path
+
+
+def _add_component_patches(axis, config, view, Circle, Rectangle, colors):
+    for component in config.geometry.components:
+        axis.add_patch(
+            _component_patch(
+                component,
+                view,
+                Circle,
+                Rectangle,
+                facecolor=colors[component.material],
+                edgecolor="black",
+                linewidth=0.8,
+                alpha=0.8,
+            )
+        )
+        axis.text(
+            component.center_cm[0],
+            component.center_cm[1 if view == "xy" else 2],
+            f"{component.name}\n{component.material}",
+            ha="center",
+            va="center",
+            fontsize=7,
+        )

@@ -35,6 +35,41 @@ def build_model(config: SimulationConfig):
         upper = openmc.ZPlane(z0=height_cm / 2)
         return -cylinder & +lower & -upper
 
+    def component_region(component):
+        center_x, center_y, center_z = component.center_cm
+        if component.shape == "box":
+            size_x, size_y, size_z = component.dimensions_cm
+            return (
+                +openmc.XPlane(x0=center_x - size_x / 2)
+                & -openmc.XPlane(x0=center_x + size_x / 2)
+                & +openmc.YPlane(y0=center_y - size_y / 2)
+                & -openmc.YPlane(y0=center_y + size_y / 2)
+                & +openmc.ZPlane(z0=center_z - size_z / 2)
+                & -openmc.ZPlane(z0=center_z + size_z / 2)
+            )
+
+        radius_cm, length_cm = component.dimensions_cm
+        axis = component.axis
+        if axis == "x":
+            surface = openmc.XCylinder(y0=center_y, z0=center_z, r=radius_cm)
+            lower = openmc.XPlane(x0=center_x - length_cm / 2)
+            upper = openmc.XPlane(x0=center_x + length_cm / 2)
+        elif axis == "y":
+            surface = openmc.YCylinder(x0=center_x, z0=center_z, r=radius_cm)
+            lower = openmc.YPlane(y0=center_y - length_cm / 2)
+            upper = openmc.YPlane(y0=center_y + length_cm / 2)
+        else:
+            surface = openmc.ZCylinder(x0=center_x, y0=center_y, r=radius_cm)
+            lower = openmc.ZPlane(z0=center_z - length_cm / 2)
+            upper = openmc.ZPlane(z0=center_z + length_cm / 2)
+        return -surface & +lower & -upper
+
+    def union(regions):
+        combined = regions[0]
+        for region in regions[1:]:
+            combined |= region
+        return combined
+
     cavity_region = cylinder_region(
         config.geometry.cavity_radius_cm, config.geometry.cavity_height_cm
     )
@@ -62,8 +97,30 @@ def build_model(config: SimulationConfig):
         previous_region = layer_region
 
     boundary = openmc.Sphere(r=config.geometry.world_radius_cm, boundary_type="vacuum")
+    component_regions = [
+        component_region(component) for component in config.geometry.components
+    ]
+    material_cells = list(tally_cells[2:])
+    component_cells = {}
+    for index, component in enumerate(config.geometry.components):
+        region = component_regions[index] & ~previous_region
+        if index + 1 < len(component_regions):
+            region &= ~union(component_regions[index + 1 :])
+        cell = openmc.Cell(
+            name=component.name,
+            fill=materials[component.material],
+            region=region,
+        )
+        cells.append(cell)
+        material_cells.append((component.name, cell))
+        tally_cells.append((component.name, cell))
+        component_cells[component.name] = cell
+
+    external_region = -boundary & ~previous_region
+    if component_regions:
+        external_region &= ~union(component_regions)
     cells.append(
-        openmc.Cell(name="external vacuum", region=-boundary & ~previous_region)
+        openmc.Cell(name="external vacuum", region=external_region)
     )
     geometry = openmc.Geometry(openmc.Universe(cells=cells))
 
@@ -72,6 +129,7 @@ def build_model(config: SimulationConfig):
     settings.particles = config.settings.particles
     settings.batches = config.settings.batches
     settings.inactive = config.settings.inactive
+    settings.photon_transport = config.physics.photon_transport
     if config.settings.seed is not None:
         settings.seed = config.settings.seed
     source_space = openmc.stats.CylindricalIndependent(
@@ -99,6 +157,80 @@ def build_model(config: SimulationConfig):
         tally.filters = [openmc.CellFilter(cell), make_energy_filter(energy_edges_ev)]
         tally.scores = ["flux"]
         tallies.append(tally)
+
+    for name, cell in material_cells:
+        interactions = openmc.Tally(name=f"neutron_interactions_{name}")
+        interactions.filters = [
+            openmc.CellFilter(cell),
+            openmc.ParticleFilter("neutron"),
+        ]
+        interactions.scores = [
+            "total",
+            "scatter",
+            "absorption",
+            "fission",
+            "nu-fission",
+            "(n,2n)",
+            "(n,3n)",
+            "(n,gamma)",
+        ]
+        tallies.append(interactions)
+
+        energy_transfer = openmc.Tally(name=f"neutron_energy_transfer_{name}")
+        transfer_edges_ev = sorted(
+            set([0.0, 1.0e3, 1.0e5, 1.0e6, *energy_edges_ev])
+        )
+        energy_transfer.filters = [
+            openmc.CellFilter(cell),
+            openmc.EnergyFilter(transfer_edges_ev),
+            openmc.EnergyoutFilter(transfer_edges_ev),
+        ]
+        energy_transfer.scores = ["scatter"]
+        tallies.append(energy_transfer)
+
+        neutron_heating = openmc.Tally(name=f"neutron_heating_{name}")
+        neutron_heating.filters = [
+            openmc.CellFilter(cell),
+            openmc.ParticleFilter("neutron"),
+        ]
+        neutron_heating.scores = ["heating-local"]
+        tallies.append(neutron_heating)
+
+        if config.physics.photon_transport:
+            photon_heating = openmc.Tally(name=f"photon_heating_{name}")
+            photon_heating.filters = [
+                openmc.CellFilter(cell),
+                openmc.ParticleFilter("photon"),
+            ]
+            photon_heating.scores = ["heating"]
+            tallies.append(photon_heating)
+
+    for component in config.geometry.components:
+        composition = config.materials[component.material].nuclides or {}
+        if "He3" not in composition:
+            continue
+        he3_response = openmc.Tally(name=f"he3_n_p_spectrum_{component.name}")
+        he3_response.filters = [
+            openmc.CellFilter(component_cells[component.name]),
+            openmc.ParticleFilter("neutron"),
+            make_energy_filter(energy_edges_ev),
+        ]
+        he3_response.nuclides = ["He3"]
+        he3_response.scores = ["(n,p)"]
+        tallies.append(he3_response)
+
+    production_tally = openmc.Tally(name="secondary_particle_production")
+    production_energy_ev = sorted(
+        set([0.0, 1.0e3, 1.0e5, 1.0e6, *energy_edges_ev])
+    )
+    production_tally.filters = [
+        openmc.ParticleFilter("neutron"),
+        openmc.ParticleProductionFilter(
+            ["neutron", "photon"], energies=production_energy_ev
+        ),
+    ]
+    production_tally.scores = ["events"]
+    tallies.append(production_tally)
 
     mesh_bins = config.visualization.mesh_bins
     radius = config.geometry.world_radius_cm
@@ -134,6 +266,31 @@ def build_model(config: SimulationConfig):
         ]
         spectrum_tally.scores = ["flux"]
         tallies.append(spectrum_tally)
+
+    voxel_mesh = openmc.RegularMesh(name="mesh_voxel_flux")
+    voxel_mesh.dimension = (
+        config.visualization.voxel_bins,
+        config.visualization.voxel_bins,
+        config.visualization.voxel_bins,
+    )
+    voxel_mesh.lower_left = (-radius, -radius, -radius)
+    voxel_mesh.upper_right = (radius, radius, radius)
+    voxel_flux = openmc.Tally(name="voxel_flux")
+    voxel_flux.filters = [
+        openmc.MeshFilter(voxel_mesh),
+        openmc.ParticleFilter("neutron"),
+    ]
+    voxel_flux.scores = ["flux"]
+    tallies.append(voxel_flux)
+
+    if config.physics.photon_transport:
+        voxel_photon_heating = openmc.Tally(name="voxel_photon_heating")
+        voxel_photon_heating.filters = [
+            openmc.MeshFilter(voxel_mesh),
+            openmc.ParticleFilter("photon"),
+        ]
+        voxel_photon_heating.scores = ["heating"]
+        tallies.append(voxel_photon_heating)
 
     detector_mesh = openmc.RegularMesh(name="spectrum_detector")
     detector_mesh.dimension = (1, 1, 1)

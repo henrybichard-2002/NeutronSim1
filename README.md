@@ -40,7 +40,8 @@ to OpenMC (`c_H_in_H2O` for water). The preliminary configurations model dry
 air using natural N/O/Ar/C elemental proportions, aluminium at 2.70 g/cm3, and
 water at 1.0 g/cm3. The selected nuclear data library must include the natural
 isotopes for H, C, N, O, Ar and Al, plus the `c_H_in_H2O` thermal-scattering
-table.
+table. `config/he3_detector.yaml` also needs a helium-3 neutron table and
+compatible photon interaction data.
 
 Build OpenMC XML inputs without starting a simulation:
 
@@ -64,8 +65,11 @@ plot panels manageable. XY and XZ maps are central-plane slab averages; the
 slab thickness is set by `visualization.slice_thickness_cm` (0.4 cm by default).
 `visualization.mesh_bins` controls spatial resolution. The source-flux spectrum
 is tallied in the configured cylindrical source volume; the remaining source
-cavity is tallied separately. Flux results are normalized per source neutron,
-not to a physical source emission rate.
+cavity is tallied separately. XY/XZ and 3D voxel flux maps, plus the detector
+spectrum, divide OpenMC's track-length tallies by the exact mesh-cell volume to
+report scalar flux in cm-2 per source neutron. Region spectra are integrated
+track-length tallies in cm per source neutron, so their raw values should not
+be compared across regions of different volumes.
 
 OpenMC tallies are normalized per source particle; multiply them by the
 physical neutron emission rate when a source-rate-normalized result is needed.
@@ -91,9 +95,10 @@ energy-group maps, relative-uncertainty maps, x/y/z line profiles at the
 configured `visualization.marginal_*_cm` positions, region spectra, and the
 0.1 MeV detector spectrum. The spatial meshes and geometry plots extend across
 the full configured world radius in each plotted direction, including the
-vacuum region; spatial heatmaps include dotted, numerically labelled contour
-lines and a magenta detector marker. The geometry and line-profile figures also
-show the detector location. Line profiles use the nearest mesh-bin center to
+vacuum region; only total-flux heatmaps include dotted, numerically labelled
+contour lines, and spatial heatmaps show a magenta detector marker. Geometry
+figures also show configured component materials and the detector location.
+Line profiles use the nearest mesh-bin center to
 the requested coordinate and span the world radius. Plotting checks that the
 statepoint mesh fits within the configured world, energy bins match, and any
 detector tally matches the supplied config.
@@ -114,12 +119,53 @@ iec-neutrons plot config/example.yaml runs/example/statepoint.10.h5
 ```
 
 Plot appearance is controlled in the `PLOT_STYLE` block near the top of
-`src/iec_neutrons/visualize.py`. It centralizes spatial, energy-map, geometry,
-and spectrum color schemes; spatial/spectrum axis scales; map color scales;
-and `xlim`, `ylim`, `zlim`, colorbar limits, and spectrum limits. Leave limits
-as `None` to retain the full world-radius view and automatic color limits.
+`src/iec_neutrons/visualize.py`. It centralizes spatial, energy-map, voxel,
+geometry, and spectrum color schemes; spatial/spectrum axis scales; map color
+scales; and `xlim`, `ylim`, `zlim`, colorbar limits, and spectrum limits. Leave
+limits as `None` to retain the full world-radius view and automatic color
+limits.
 `zlim` controls the vertical extent on XZ plots; color limits are specified as
 `(minimum, maximum)`.
+
+## External assemblies and interaction tallies
+
+`geometry.components` configures finite components beyond or within the radial
+layers. Supported shapes are axis-aligned boxes (`size_cm: [x, y, z]`) and
+cylinders (`radius_cm`, `length_cm`, and `axis: x|y|z`), each located by
+`center_cm: [x, y, z]`. The listed order defines overlap priority: later
+components carve their volume out of earlier components, while the radial
+layers take precedence over all components. Components and the detector scoring
+volume must fit inside the spherical world boundary.
+
+The provisional [`config/he3_detector.yaml`](config/he3_detector.yaml) models
+reactor path 2 with an external assembly centered 30 cm from the source along
++x. Replaceable assumptions are an 8 × 8 × 40 cm HDPE block, a 30 cm active
+tube length, 1.22 cm inner radius, a 0.5 mm aluminium wall, and 4 atm He-3 at
+293 K represented by an ideal-gas density of 0.00050 g/cm3. The tube axis is z.
+These dimensions and material properties are examples, not measured detector
+specifications.
+
+Material-region tallies include neutron total, scattering, absorption, fission,
+fission-neutron production, (n,2n), (n,3n), and (n,gamma) scores.
+`neutron_energy_transfer_*` tallies bin incoming and outgoing neutron energies
+to show scattering energy loss or gain; `secondary_particle_production`
+records neutron/photon secondary yields. The He-3 gas also has an energy-binned
+(n,p) response tally. Reaction channels and yields are limited by the selected
+evaluated nuclear data and do not imply every conceivable reaction is present.
+
+The He-3 example enables `physics.photon_transport` and requests photon energy
+deposition tallies. Photon transport requires compatible photon interaction
+data in the cross-section index. The locally inspected
+`runs/example/cross_sections.xml` currently has neither photon interaction
+tables nor a He-3 neutron table, so the example can be built but cannot be run
+until those libraries are added and indexed. Existing reactor-path configurations
+leave photon transport disabled.
+
+`visualization.voxel_bins` sets the 3D mesh resolution in each direction
+(32 × 32 × 32 by default). New statepoints produce `voxel_flux.png`; coupled
+runs also produce `voxel_photon_heating.png`. Voxel storage and rendering grow
+cubically with this setting, so increase it gradually. XY and XZ tallies remain
+separate central-plane views.
 
 ## Tests
 

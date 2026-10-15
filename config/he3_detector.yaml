@@ -1,0 +1,135 @@
+# Provisional external detector assumptions; replace dimensions, materials,
+# gas pressure/density and location with the detector's measured specifications.
+# The detector assembly center is 30 cm from the source center along +x.
+# The tube axis is z; its 4 atm, 293 K He-3 density uses the ideal-gas estimate.
+source:
+  radius_cm: 0.5
+  height_cm: 35.0
+  energy_mev: 14.1
+
+detector:
+  x_cm: 30.0
+  y_cm: 0.0
+  z_cm: 0.0
+  width_x_cm: 0.4
+  width_y_cm: 0.4
+  thickness_z_cm: 0.05
+
+geometry:
+  cavity:
+    radius_cm: 0.5
+    height_cm: 60.0
+  layers:
+    - name: air_1
+      thickness_mm: 38.0
+      height_cm: 60.0
+      material: air
+    - name: aluminium_1
+      thickness_mm: 14.0
+      height_cm: 60.0
+      material: aluminium
+    - name: water_1
+      thickness_mm: 1.5
+      height_cm: 60.0
+      material: water
+    - name: aluminium_2
+      thickness_mm: 1.5
+      height_cm: 60.0
+      material: aluminium
+    - name: water_2
+      thickness_mm: 7.0
+      height_cm: 60.0
+      material: water
+    - name: aluminium_3
+      thickness_mm: 1.5
+      height_cm: 60.0
+      material: aluminium
+    - name: water_3
+      thickness_mm: 3.5
+      height_cm: 60.0
+      material: water
+    - name: aluminium_4
+      thickness_mm: 3.0
+      height_cm: 60.0
+      material: aluminium
+    - name: air_2
+      thickness_mm: 120.0
+      height_cm: 100.0
+      material: air
+  # Later components take precedence over earlier ones where volumes overlap.
+  # This models the tube and gas as cutouts inside the moderator and tube wall.
+  components:
+    - name: hdpe_moderator
+      shape: box
+      center_cm: [30.0, 0.0, 0.0]
+      size_cm: [8.0, 8.0, 40.0]
+      material: polyethylene
+    - name: he3_tube_wall
+      shape: cylinder
+      axis: z
+      center_cm: [30.0, 0.0, 0.0]
+      radius_cm: 1.27
+      length_cm: 30.2
+      material: aluminium
+    - name: he3_gas
+      shape: cylinder
+      axis: z
+      center_cm: [30.0, 0.0, 0.0]
+      radius_cm: 1.22
+      length_cm: 30.0
+      material: helium3_gas
+  world_radius_cm: 70.0
+
+materials:
+  air:
+    density_g_cm3: 0.001225
+    elements:
+      N: 0.78084
+      O: 0.20946
+      Ar: 0.00934
+      C: 0.00036
+  aluminium:
+    density_g_cm3: 2.70
+    elements:
+      Al: 1
+  water:
+    density_g_cm3: 1.0
+    elements:
+      H: 2
+      O: 1
+    thermal_scattering:
+      - c_H_in_H2O
+  polyethylene:
+    density_g_cm3: 0.94
+    elements:
+      C: 1
+      H: 2
+    thermal_scattering:
+      - c_H_in_CH2
+  helium3_gas:
+    density_g_cm3: 0.00050
+    nuclides:
+      He3: 1
+
+settings:
+  particles: 100000
+  batches: 10
+  inactive: 0
+  seed: 12345
+
+tally:
+  energy_min_mev: 1.0
+  energy_max_mev: 16.0
+  energy_bin_width_mev: 0.1
+
+visualization:
+  mesh_bins: 128
+  voxel_bins: 32
+  slice_thickness_cm: 0.4
+  energy_bins_mev: [1.0, 4.0, 8.0, 12.0, 16.0]
+  marginal_x_cm: 30.0
+  marginal_y_cm: 0.0
+  marginal_z_cm: 0.0
+
+physics:
+  photon_transport: true

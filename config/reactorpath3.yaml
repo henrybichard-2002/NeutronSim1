@@ -8,7 +8,7 @@ source:
 detector:
   # Volume-averaged flux scoring volume: 0.4 x 0.4 cm face, 500 um thick.
   # Change x_cm, y_cm and z_cm to move the detector and rerun the simulation.
-  x_cm: 0.0
+  x_cm: 10.0
   y_cm: 0.0
   z_cm: 0.0
   width_x_cm: 0.4

@@ -31,6 +31,16 @@ class LayerConfig:
 
 
 @dataclass(frozen=True)
+class ComponentConfig:
+    name: str
+    shape: str
+    center_cm: tuple[float, float, float]
+    dimensions_cm: tuple[float, ...]
+    material: str
+    axis: str | None = None
+
+
+@dataclass(frozen=True)
 class DetectorConfig:
     x_cm: float
     y_cm: float
@@ -45,7 +55,13 @@ class GeometryConfig:
     cavity_radius_cm: float
     cavity_height_cm: float
     layers: tuple[LayerConfig, ...]
+    components: tuple[ComponentConfig, ...]
     world_radius_cm: float
+
+
+@dataclass(frozen=True)
+class PhysicsConfig:
+    photon_transport: bool = False
 
 
 @dataclass(frozen=True)
@@ -72,6 +88,7 @@ class TallyConfig:
 @dataclass(frozen=True)
 class VisualizationConfig:
     mesh_bins: int = 100
+    voxel_bins: int = 32
     slice_thickness_cm: float = 0.4
     energy_bins_mev: tuple[float, ...] = ()
     marginal_x_cm: float = 0.0
@@ -88,6 +105,7 @@ class SimulationConfig:
     settings: SettingsConfig
     tally: TallyConfig
     visualization: VisualizationConfig
+    physics: PhysicsConfig
 
 
 def _mapping(value: Any, path: str) -> dict[str, Any]:
@@ -141,7 +159,7 @@ def load_config(path: str | Path) -> SimulationConfig:
     _keys(
         root,
         {"source", "geometry", "materials", "settings", "tally"},
-        {"visualization", "detector"},
+        {"visualization", "detector", "physics"},
         "configuration",
     )
 
@@ -154,7 +172,12 @@ def load_config(path: str | Path) -> SimulationConfig:
     )
 
     geometry_data = _mapping(root["geometry"], "geometry")
-    _keys(geometry_data, {"cavity", "layers", "world_radius_cm"}, set(), "geometry")
+    _keys(
+        geometry_data,
+        {"cavity", "layers", "world_radius_cm"},
+        {"components"},
+        "geometry",
+    )
     cavity_data = _mapping(geometry_data["cavity"], "geometry.cavity")
     _keys(cavity_data, {"radius_cm", "height_cm"}, set(), "geometry.cavity")
     cavity_radius = _number(cavity_data["radius_cm"], "geometry.cavity.radius_cm", minimum=0, exclusive=True)
@@ -222,7 +245,93 @@ def load_config(path: str | Path) -> SimulationConfig:
         raise ConfigError("geometry.world_radius_cm must enclose the outermost cylinder")
     if source.radius_cm > cavity_radius or source.height_cm > cavity_height:
         raise ConfigError("the source cylinder must fit inside geometry.cavity")
-    geometry = GeometryConfig(cavity_radius, cavity_height, tuple(layers), world_radius)
+
+    raw_components = geometry_data.get("components", [])
+    if not isinstance(raw_components, list):
+        raise ConfigError("geometry.components must be a list")
+    components: list[ComponentConfig] = []
+    for index, raw_component in enumerate(raw_components):
+        component_path = f"geometry.components[{index}]"
+        component_data = _mapping(raw_component, component_path)
+        _keys(
+            component_data,
+            {"name", "shape", "center_cm", "material"},
+            {"size_cm", "radius_cm", "length_cm", "axis"},
+            component_path,
+        )
+        name = component_data["name"]
+        shape = component_data["shape"]
+        material = component_data["material"]
+        if not isinstance(name, str) or not name.strip():
+            raise ConfigError(f"{component_path}.name must be a non-empty string")
+        if name in names:
+            raise ConfigError(f"geometry component name {name!r} is duplicated")
+        if not isinstance(shape, str) or shape not in {"box", "cylinder"}:
+            raise ConfigError(f"{component_path}.shape must be 'box' or 'cylinder'")
+        if not isinstance(material, str) or not material.strip():
+            raise ConfigError(f"{component_path}.material must be a non-empty string")
+        center_data = component_data["center_cm"]
+        if not isinstance(center_data, list) or len(center_data) != 3:
+            raise ConfigError(f"{component_path}.center_cm must contain x, y and z")
+        center = (
+            _number(center_data[0], f"{component_path}.center_cm[x]", minimum=-world_radius),
+            _number(center_data[1], f"{component_path}.center_cm[y]", minimum=-world_radius),
+            _number(center_data[2], f"{component_path}.center_cm[z]", minimum=-world_radius),
+        )
+        if shape == "box":
+            _keys(
+                component_data,
+                {"name", "shape", "center_cm", "material", "size_cm"},
+                set(),
+                component_path,
+            )
+            size_data = component_data["size_cm"]
+            if not isinstance(size_data, list) or len(size_data) != 3:
+                raise ConfigError(f"{component_path}.size_cm must contain x, y and z sizes")
+            dimensions = tuple(
+                _number(value, f"{component_path}.size_cm[{axis}]", minimum=0, exclusive=True)
+                for axis, value in zip(("x", "y", "z"), size_data, strict=True)
+            )
+            axis = None
+            half_extents = tuple(value / 2 for value in dimensions)
+        else:
+            _keys(
+                component_data,
+                {"name", "shape", "center_cm", "material", "radius_cm", "length_cm"},
+                {"axis"},
+                component_path,
+            )
+            axis = component_data.get("axis", "z")
+            if not isinstance(axis, str) or axis not in {"x", "y", "z"}:
+                raise ConfigError(f"{component_path}.axis must be 'x', 'y' or 'z'")
+            radius = _number(
+                component_data["radius_cm"],
+                f"{component_path}.radius_cm",
+                minimum=0,
+                exclusive=True,
+            )
+            length = _number(
+                component_data["length_cm"],
+                f"{component_path}.length_cm",
+                minimum=0,
+                exclusive=True,
+            )
+            dimensions = (radius, length)
+            half_extents = tuple(
+                length / 2 if coordinate == axis else radius for coordinate in ("x", "y", "z")
+            )
+        if math.sqrt(
+            sum((abs(position) + extent) ** 2 for position, extent in zip(center, half_extents, strict=True))
+        ) >= world_radius:
+            raise ConfigError(f"{component_path} must fit inside geometry.world_radius_cm")
+        components.append(
+            ComponentConfig(name, shape, center, dimensions, material, axis)
+        )
+        names.add(name)
+
+    geometry = GeometryConfig(
+        cavity_radius, cavity_height, tuple(layers), tuple(components), world_radius
+    )
 
     materials_data = _mapping(root["materials"], "materials")
     if not materials_data:
@@ -254,9 +363,12 @@ def load_config(path: str | Path) -> SimulationConfig:
             nuclides=nuclides,
             thermal_scattering=tuple(thermal),
         )
-    missing_materials = {layer.material for layer in layers} - materials.keys()
+    missing_materials = (
+        {layer.material for layer in layers}
+        | {component.material for component in components}
+    ) - materials.keys()
     if missing_materials:
-        raise ConfigError(f"undefined layer materials: {', '.join(sorted(missing_materials))}")
+        raise ConfigError(f"undefined geometry materials: {', '.join(sorted(missing_materials))}")
 
     settings_data = _mapping(root["settings"], "settings")
     _keys(settings_data, {"particles", "batches", "inactive"}, {"seed"}, "settings")
@@ -321,6 +433,7 @@ def load_config(path: str | Path) -> SimulationConfig:
         set(),
         {
             "mesh_bins",
+            "voxel_bins",
             "slice_thickness_cm",
             "energy_bins_mev",
             "marginal_x_cm",
@@ -343,6 +456,9 @@ def load_config(path: str | Path) -> SimulationConfig:
     visualization = VisualizationConfig(
         mesh_bins=_positive_int(
             visualization_data.get("mesh_bins", 100), "visualization.mesh_bins"
+        ),
+        voxel_bins=_positive_int(
+            visualization_data.get("voxel_bins", 32), "visualization.voxel_bins"
         ),
         slice_thickness_cm=_number(
             visualization_data.get("slice_thickness_cm", 0.4),
@@ -404,16 +520,37 @@ def load_config(path: str | Path) -> SimulationConfig:
             exclusive=True,
         ),
     )
-    detector_radius = math.hypot(
-        abs(detector.x_cm) + detector.width_x_cm / 2,
-        abs(detector.y_cm) + detector.width_y_cm / 2,
+    detector_extent = (
+        detector.width_x_cm / 2,
+        detector.width_y_cm / 2,
+        detector.thickness_z_cm / 2,
     )
-    detector_z = abs(detector.z_cm) + detector.thickness_z_cm / 2
-    if (
-        math.hypot(detector_radius, detector_z) >= world_radius
-        or detector_radius > outermost.radius_cm
-        or detector_z > outermost.height_cm / 2
-    ):
-        raise ConfigError("detector volume must fit inside the layered geometry")
+    if math.sqrt(
+        sum(
+            (abs(position) + extent) ** 2
+            for position, extent in zip(
+                (detector.x_cm, detector.y_cm, detector.z_cm),
+                detector_extent,
+                strict=True,
+            )
+        )
+    ) >= world_radius:
+        raise ConfigError("detector volume must fit inside geometry.world_radius_cm")
 
-    return SimulationConfig(source, detector, geometry, materials, settings, tally, visualization)
+    physics_data = _mapping(root.get("physics", {}), "physics")
+    _keys(physics_data, set(), {"photon_transport"}, "physics")
+    photon_transport = physics_data.get("photon_transport", False)
+    if not isinstance(photon_transport, bool):
+        raise ConfigError("physics.photon_transport must be a boolean")
+    physics = PhysicsConfig(photon_transport=photon_transport)
+
+    return SimulationConfig(
+        source=source,
+        detector=detector,
+        geometry=geometry,
+        materials=materials,
+        settings=settings,
+        tally=tally,
+        visualization=visualization,
+        physics=physics,
+    )
