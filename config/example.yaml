@@ -1,6 +1,6 @@
 # All lengths are in cm; source and tally energies are in MeV.
 source:
-  radius_cm: 1.0
+  radius_cm: 0.1
   height_cm: 35.0
   energy_mev: 14.1
 
@@ -42,8 +42,3 @@ settings:
 
 tally:
   energy_bins_mev: [0.0, 0.001, 0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 14.2]
-
-visualization:
-  # Number of mesh voxels on each resolved axis. Each 2D view collapses the
-  # remaining axis into one bin spanning the full spherical model boundary.
-  mesh_bins: 100
