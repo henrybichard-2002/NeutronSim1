@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from iec_neutrons.config import load_config
-from iec_neutrons.visualize import _plot_geometry, _plot_spatial_map
+from iec_neutrons.visualize import PLOT_STYLE, _plot_geometry, _plot_spatial_map
 
 
 CONFIG = Path(__file__).parents[1] / "config" / "reactorpath1.yaml"
@@ -17,6 +17,7 @@ def test_spatial_heatmap_uses_world_extent_and_dotted_contours(
     import matplotlib.pyplot as plt
     import numpy as np
     from matplotlib.colors import LogNorm
+    from matplotlib.colors import Normalize
     from matplotlib.patches import Circle, Rectangle
 
     config = load_config(CONFIG)
@@ -44,12 +45,16 @@ def test_spatial_heatmap_uses_world_extent_and_dotted_contours(
         Circle,
         Rectangle,
         plt,
+        PLOT_STYLE,
+        Normalize,
     )
 
     figure, axis = figures[0]
     assert axis.get_xlim() == pytest.approx((-world_radius, world_radius))
     assert axis.get_ylim() == pytest.approx((-world_radius, world_radius))
     assert axis.collections
+    assert any("e" in label.get_text() for label in axis.texts)
+    assert any("Detector" in label.get_text() for label in axis.texts)
     figure.clear()
 
 
@@ -81,9 +86,11 @@ def test_geometry_plot_covers_world_radius(view: str, tmp_path: Path, monkeypatc
         Patch,
         Wedge,
         Rectangle,
+        PLOT_STYLE,
     )
 
     figure, axis = figures[0]
     assert axis.get_xlim() == pytest.approx((-world_radius, world_radius))
     assert axis.get_ylim() == pytest.approx((-world_radius, world_radius))
+    assert any("Detector" in label.get_text() for label in axis.texts)
     figure.clear()

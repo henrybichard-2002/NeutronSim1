@@ -6,19 +6,19 @@ source:
 
 geometry:
   cavity:
-    radius_cm: 5.0
-    height_cm: 40.0
+    radius_cm: 0.1
+    height_cm: 35.0
   # Layers are listed inner to outer. Each cylinder must enclose the
   # previous cylinder; the resulting layer also forms an end cap.
   layers:
+    - name: lead
+      radius_cm: 14.7
+      height_cm: 40.0
+      material: lead
     - name: polyethylene
       radius_cm: 15.0
       height_cm: 40.0
       material: polyethylene
-    - name: lead
-      radius_cm: 20.0
-      height_cm: 45.0
-      material: lead
   world_radius_cm: 35.0
 
 materials:
@@ -35,8 +35,8 @@ materials:
       Pb: 1
 
 settings:
-  particles: 100000
-  batches: 10
+  particles: 10000
+  batches: 100
   inactive: 0
   seed: 12345
 

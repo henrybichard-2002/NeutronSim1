@@ -91,12 +91,35 @@ energy-group maps, relative-uncertainty maps, x/y/z line profiles at the
 configured `visualization.marginal_*_cm` positions, region spectra, and the
 0.1 MeV detector spectrum. The spatial meshes and geometry plots extend across
 the full configured world radius in each plotted direction, including the
-vacuum region; spatial heatmaps include dotted flux contours. Line profiles use
-the nearest mesh-bin center to the requested coordinate and span the world
-radius. Run the matching simulation before plotting; plotting checks that
-statepoint mesh, detector, and energy bins agree with the supplied config.
+vacuum region; spatial heatmaps include dotted, numerically labelled contour
+lines and a magenta detector marker. The geometry and line-profile figures also
+show the detector location. Line profiles use the nearest mesh-bin center to
+the requested coordinate and span the world radius. Plotting checks that the
+statepoint mesh fits within the configured world, energy bins match, and any
+detector tally matches the supplied config.
 Matplotlib is required and can be installed with
 `python -m pip install -e ".[plot]"`.
+
+The source-volume flux spectrum and detector spectrum require statepoints
+generated with the current model tallies. Older statepoints remain plottable
+when they contain the map and region tallies: the old source-cavity curve is
+labelled as including the source, the detector position is still marked from
+the config, and the unavailable detector spectrum is skipped with a warning.
+Rerun the simulation to obtain the separated source spectrum and detector
+spectrum:
+
+```sh
+iec-neutrons run config/example.yaml
+iec-neutrons plot config/example.yaml runs/example/statepoint.10.h5
+```
+
+Plot appearance is controlled in the `PLOT_STYLE` block near the top of
+`src/iec_neutrons/visualize.py`. It centralizes spatial, energy-map, geometry,
+and spectrum color schemes; spatial/spectrum axis scales; map color scales;
+and `xlim`, `ylim`, `zlim`, colorbar limits, and spectrum limits. Leave limits
+as `None` to retain the full world-radius view and automatic color limits.
+`zlim` controls the vertical extent on XZ plots; color limits are specified as
+`(minimum, maximum)`.
 
 ## Tests
 
