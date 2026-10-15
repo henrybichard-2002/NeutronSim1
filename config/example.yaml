@@ -7,7 +7,7 @@ source:
 geometry:
   cavity:
     radius_cm: 5.0
-    height_cm: 20.0
+    height_cm: 40.0
   # Layers are listed inner to outer. Each cylinder must enclose the
   # previous cylinder; the resulting layer also forms an end cap.
   layers:
