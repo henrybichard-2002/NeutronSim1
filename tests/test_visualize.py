@@ -1,5 +1,4 @@
 from pathlib import Path
-from dataclasses import replace
 
 import pytest
 
@@ -236,14 +235,13 @@ def test_geometry_voxel_plot_shows_material_voxels(tmp_path: Path) -> None:
     from matplotlib.patches import Patch
 
     config = load_config(Path(__file__).parents[1] / "config" / "he3_detector.yaml")
-    config = replace(
-        config,
-        visualization=replace(config.visualization, voxel_bins=12),
-    )
     labels, materials, bounds = _geometry_voxel_data(config, np)
     assert "D-T source volume" in materials
     assert {"air", "aluminium", "water", "polyethylene", "helium3_gas"} <= set(materials)
     assert np.any(labels >= 0)
+    category_ids = {name: index for index, name in enumerate(materials)}
+    assert np.any(labels == category_ids["helium3_gas"])
+    assert np.any(labels == category_ids["polyethylene"])
     path = _plot_geometry_voxels(
         labels,
         materials,

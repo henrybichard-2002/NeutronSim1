@@ -23,7 +23,7 @@ class PlotStyle:
     spatial_yscale: str = "linear"
     spatial_cscale: str = "log"
     energy_cscale: str = "log"
-    uncertainty_cscale: str = "linear"
+    uncertainty_cscale: str = "log"
     heatmap_min_percentile: float = 2.0
     spectrum_xscale: str = "linear"
     spectrum_yscale: str = "log"
