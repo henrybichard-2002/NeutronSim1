@@ -71,22 +71,22 @@ materials:
       - c_H_in_H2O
 
 settings:
-  particles: 100000
+  particles: 1000000
   batches: 10
   inactive: 0
   seed: 12345
 
 tally:
-  energy_min_mev: 0.0025
+  energy_min_mev: 0.1
   energy_max_mev: 16
   energy_bin_width_mev: 0.1
 
 visualization:
-  mesh_bins: 150
+  mesh_bins: 1024
   slice_thickness_cm: 0.4
   # Fewer broad energy groups for spatial-map panels; the detector spectrum
   # and region spectra retain the full 0.1 MeV bins above.
-  energy_bins_mev: [0.0025, 0.1, 1.0, 2.45, 8.0, 10.0, 14.1, 15.9]
+  energy_bins_mev: [ 0.1, 1.0, 2.4, 13.8, 13.9, 14.0, 14.1, 14.2, 14.3]
   # XY: x profile at this y and y profile at this x.
   # XZ: x profile at this z and z profile at this x.
   marginal_x_cm: 10.0
