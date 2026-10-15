@@ -37,6 +37,7 @@ def plot_results(
     }
     expected_names = set(map_tally_names.values())
     expected_names.add("detector_energy_spectrum")
+    expected_names.add("flux_spectrum_source")
     expected_names.add("flux_spectrum_source_cavity")
     expected_names.update(f"flux_spectrum_{layer.name}" for layer in config.geometry.layers)
 
@@ -74,9 +75,12 @@ def plot_results(
             for view in ("xy", "xz")
         }
         spectra = {
-            "Source cavity": _spectrum_values(
+            "Source flux (source volume)": _spectrum_values(
+                statepoint.get_tally(name="flux_spectrum_source"), np
+            ),
+            "Source cavity outside source volume": _spectrum_values(
                 statepoint.get_tally(name="flux_spectrum_source_cavity"), np
-            )
+            ),
         }
         for layer in config.geometry.layers:
             spectra[layer.name] = _spectrum_values(
@@ -87,10 +91,9 @@ def plot_results(
         detector_mean = _spectrum_values(detector_tally, np)
         detector_std_dev = _spectrum_values(detector_tally, np, value="std_dev")
 
-    radius = config.geometry.layers[-1].radius_cm
-    half_height = config.geometry.layers[-1].height_cm / 2
+    radius = config.geometry.world_radius_cm
     flux_edges = _mesh_edges(radius, config.visualization.mesh_bins)
-    z_edges = _mesh_edges(half_height, config.visualization.mesh_bins)
+    z_edges = _mesh_edges(radius, config.visualization.mesh_bins)
     total_edges = np.asarray(config.tally.energy_bins_mev)
     map_edges = np.asarray(config.visualization.energy_bins_mev)
     paths: list[Path] = []
@@ -106,7 +109,7 @@ def plot_results(
         else:
             vertical_label = "z (cm)"
             vertical_edges = z_edges
-            vertical_radius = half_height
+            vertical_radius = radius
             slice_description = (
                 f"central y slab, {config.visualization.slice_thickness_cm:g} cm thick"
             )
@@ -261,8 +264,7 @@ def _spectrum_values(tally, np, value: str = "mean"):
 
 
 def _validate_mesh_tallies(tallies, config: SimulationConfig, np, openmc) -> None:
-    radius = config.geometry.layers[-1].radius_cm
-    half_height = config.geometry.layers[-1].height_cm / 2
+    radius = config.geometry.world_radius_cm
     half_slice = config.visualization.slice_thickness_cm / 2
     map_edges_ev = np.asarray(config.visualization.energy_bins_mev) * 1.0e6
     expected_energy_bins = np.column_stack((map_edges_ev[:-1], map_edges_ev[1:]))
@@ -274,8 +276,8 @@ def _validate_mesh_tallies(tallies, config: SimulationConfig, np, openmc) -> Non
         ),
         "xz": (
             (config.visualization.mesh_bins, 1, config.visualization.mesh_bins),
-            (-radius, -half_slice, -half_height),
-            (radius, half_slice, half_height),
+            (-radius, -half_slice, -radius),
+            (radius, half_slice, radius),
         ),
     }
     for view in ("xy", "xz"):
@@ -340,6 +342,14 @@ def _validate_detector_tally(tally, config: SimulationConfig, np, openmc) -> Non
 
 
 def _geometry_outlines(config: SimulationConfig, view: str, Circle, Rectangle):
+    world_boundary = Circle(
+        (0, 0),
+        config.geometry.world_radius_cm,
+        fill=False,
+        edgecolor="white",
+        linewidth=1.0,
+        linestyle=":",
+    )
     if view == "xy":
         outlines = [
             Circle(
@@ -370,6 +380,7 @@ def _geometry_outlines(config: SimulationConfig, view: str, Circle, Rectangle):
                 linestyle="--",
             )
         )
+        outlines.append(world_boundary)
         return outlines
 
     outlines = [
@@ -414,7 +425,33 @@ def _geometry_outlines(config: SimulationConfig, view: str, Circle, Rectangle):
             linestyle="--",
         )
     )
+    outlines.append(world_boundary)
     return outlines
+
+
+def _add_dotted_contours(axis, data, extent, np) -> None:
+    field = np.ma.masked_where(~np.isfinite(data) | (data <= 0), data)
+    positive = field.compressed()
+    if positive.size < 2:
+        return
+    lower, upper = np.percentile(positive, [10, 90])
+    if not upper > lower:
+        return
+    levels = np.unique(np.geomspace(lower, upper, 5))[1:-1]
+    if not levels.size:
+        return
+    x = np.linspace(extent[0], extent[1], data.shape[1])
+    y = np.linspace(extent[2], extent[3], data.shape[0])
+    axis.contour(
+        x,
+        y,
+        field,
+        levels=levels,
+        colors="white",
+        linewidths=0.6,
+        linestyles=":",
+        alpha=0.9,
+    )
 
 
 def _plot_spatial_map(
@@ -451,6 +488,7 @@ def _plot_spatial_map(
     image = axis.imshow(masked, origin="lower", extent=extent, aspect="equal", **options)
     for outline in _geometry_outlines(config, view, Circle, Rectangle):
         axis.add_patch(outline)
+    _add_dotted_contours(axis, masked, extent, np)
     axis.set_xlabel("x (cm)")
     axis.set_ylabel("y (cm)" if view == "xy" else "z (cm)")
     axis.set_title(title)
@@ -509,6 +547,7 @@ def _plot_energy_map(
         )
         for outline in _geometry_outlines(config, view, Circle, Rectangle):
             axis.add_patch(outline)
+        _add_dotted_contours(axis, field, extent, np)
         axis.set_title(f"{edges[index]:g}-{edges[index + 1]:g} MeV")
         axis.set_xlabel("x (cm)")
         axis.set_ylabel("y (cm)" if view == "xy" else "z (cm)")
@@ -561,12 +600,14 @@ def _plot_marginals(data, horizontal_edges, vertical_edges, view, config, path, 
     vertical_centers = (vertical_edges[:-1] + vertical_edges[1:]) / 2
     figure, axes = plt.subplots(1, 2, figsize=(12, 4.5), constrained_layout=True)
     axes[0].plot(horizontal_centers, first_values, color="tab:blue")
+    axes[0].set_xlim(horizontal_edges[0], horizontal_edges[-1])
     axes[0].set_yscale("log")
     axes[0].set_xlabel("x (cm)")
     axes[0].set_ylabel("Flux (cm$^{-2}$ per source neutron)")
     axes[0].set_title(f"x profile {first_description}")
     axes[0].grid(True, which="both", alpha=0.25)
     axes[1].plot(vertical_centers, second_values, color="tab:orange")
+    axes[1].set_xlim(vertical_edges[0], vertical_edges[-1])
     axes[1].set_yscale("log")
     axes[1].set_xlabel(second_axis_label)
     axes[1].set_ylabel("Flux (cm$^{-2}$ per source neutron)")
@@ -663,7 +704,7 @@ def _geometry_legend(config: SimulationConfig, Patch, colors):
 
 
 def _plot_geometry(config, view, path, plt, Circle, Patch, Wedge, Rectangle) -> Path:
-    radius = config.geometry.layers[-1].radius_cm
+    world_radius = config.geometry.world_radius_cm
     colors = _material_colors(config)
     figure, axis = plt.subplots(figsize=(11, 7), constrained_layout=True)
     if view == "xy":
@@ -683,8 +724,19 @@ def _plot_geometry(config, view, path, plt, Circle, Patch, Wedge, Rectangle) -> 
         axis.add_patch(
             Circle((0, 0), config.source.radius_cm, facecolor="0.2", edgecolor="black")
         )
-        axis.set_xlim(-radius * 1.05, radius * 1.05)
-        axis.set_ylim(-radius * 1.05, radius * 1.05)
+        axis.add_patch(
+            Circle(
+                (0, 0),
+                world_radius,
+                fill=False,
+                edgecolor="black",
+                linewidth=1.0,
+                linestyle=":",
+                label="Vacuum boundary",
+            )
+        )
+        axis.set_xlim(-world_radius, world_radius)
+        axis.set_ylim(-world_radius, world_radius)
         axis.set_xlabel("x (cm)")
         axis.set_ylabel("y (cm)")
         axis.set_aspect("equal")
@@ -711,11 +763,19 @@ def _plot_geometry(config, view, path, plt, Circle, Patch, Wedge, Rectangle) -> 
                 edgecolor="black",
             )
         )
-        axis.set_xlim(-radius * 1.1, radius * 1.1)
-        axis.set_ylim(
-            -config.geometry.layers[-1].height_cm / 2 * 1.05,
-            config.geometry.layers[-1].height_cm / 2 * 1.05,
+        axis.add_patch(
+            Circle(
+                (0, 0),
+                world_radius,
+                fill=False,
+                edgecolor="black",
+                linewidth=1.0,
+                linestyle=":",
+                label="Vacuum boundary",
+            )
         )
+        axis.set_xlim(-world_radius, world_radius)
+        axis.set_ylim(-world_radius, world_radius)
         axis.set_xlabel("x (cm)")
         axis.set_ylabel("z (cm)")
         axis.set_aspect("equal")

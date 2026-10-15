@@ -367,12 +367,12 @@ def load_config(path: str | Path) -> SimulationConfig:
             minimum=-world_radius,
         ),
     )
-    if abs(visualization.marginal_x_cm) > outermost.radius_cm:
-        raise ConfigError("visualization.marginal_x_cm must lie within the outer layer radius")
-    if abs(visualization.marginal_y_cm) > outermost.radius_cm:
-        raise ConfigError("visualization.marginal_y_cm must lie within the outer layer radius")
-    if abs(visualization.marginal_z_cm) > outermost.height_cm / 2:
-        raise ConfigError("visualization.marginal_z_cm must lie within the layer half-height")
+    if abs(visualization.marginal_x_cm) > world_radius:
+        raise ConfigError("visualization.marginal_x_cm must lie within the world radius")
+    if abs(visualization.marginal_y_cm) > world_radius:
+        raise ConfigError("visualization.marginal_y_cm must lie within the world radius")
+    if abs(visualization.marginal_z_cm) > world_radius:
+        raise ConfigError("visualization.marginal_z_cm must lie within the world radius")
 
     detector_data = _mapping(root.get("detector", {}), "detector")
     _keys(

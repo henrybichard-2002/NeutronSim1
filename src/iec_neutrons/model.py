@@ -38,9 +38,18 @@ def build_model(config: SimulationConfig):
     cavity_region = cylinder_region(
         config.geometry.cavity_radius_cm, config.geometry.cavity_height_cm
     )
-    cells = [openmc.Cell(name="source cavity", region=cavity_region)]
+    source_region = cylinder_region(config.source.radius_cm, config.source.height_cm)
+    source_cell = openmc.Cell(name="source volume", region=source_region)
+    cavity_cell = openmc.Cell(
+        name="source cavity outside source volume",
+        region=cavity_region & ~source_region,
+    )
+    cells = [source_cell, cavity_cell]
     previous_region = cavity_region
-    tally_cells: list[tuple[str, openmc.Cell]] = [("source_cavity", cells[0])]
+    tally_cells: list[tuple[str, openmc.Cell]] = [
+        ("source", source_cell),
+        ("source_cavity", cavity_cell),
+    ]
     for layer in config.geometry.layers:
         layer_region = cylinder_region(layer.radius_cm, layer.height_cm)
         cell = openmc.Cell(
@@ -92,8 +101,7 @@ def build_model(config: SimulationConfig):
         tallies.append(tally)
 
     mesh_bins = config.visualization.mesh_bins
-    radius = config.geometry.layers[-1].radius_cm
-    half_stack_height = config.geometry.layers[-1].height_cm / 2
+    radius = config.geometry.world_radius_cm
     half_slice = config.visualization.slice_thickness_cm / 2
     for view, dimensions, lower_left, upper_right in (
         (
@@ -105,8 +113,8 @@ def build_model(config: SimulationConfig):
         (
             "xz",
             (mesh_bins, 1, mesh_bins),
-            (-radius, -half_slice, -half_stack_height),
-            (radius, half_slice, half_stack_height),
+            (-radius, -half_slice, -radius),
+            (radius, half_slice, radius),
         ),
     ):
         mesh = openmc.RegularMesh(name=f"mesh_{view}")

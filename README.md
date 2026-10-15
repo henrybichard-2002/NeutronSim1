@@ -62,7 +62,10 @@ Both commands accept `--output-dir`; by default files go to
 The spatial map tallies use a separate, coarser set of energy groups to keep
 plot panels manageable. XY and XZ maps are central-plane slab averages; the
 slab thickness is set by `visualization.slice_thickness_cm` (0.4 cm by default).
-`visualization.mesh_bins` controls spatial resolution.
+`visualization.mesh_bins` controls spatial resolution. The source-flux spectrum
+is tallied in the configured cylindrical source volume; the remaining source
+cavity is tallied separately. Flux results are normalized per source neutron,
+not to a physical source emission rate.
 
 OpenMC tallies are normalized per source particle; multiply them by the
 physical neutron emission rate when a source-rate-normalized result is needed.
@@ -86,10 +89,13 @@ Plots are written to `runs/reactorpath1/plots/` by default. The output contains
 labelled top-down and side-on geometry figures, spatial total-flux and
 energy-group maps, relative-uncertainty maps, x/y/z line profiles at the
 configured `visualization.marginal_*_cm` positions, region spectra, and the
-0.1 MeV detector spectrum. Line profiles use the nearest mesh-bin center to the
-requested coordinate. Run the matching simulation before plotting; plotting
-checks that statepoint mesh, detector, and energy bins agree with the supplied
-config. Matplotlib is required and can be installed with
+0.1 MeV detector spectrum. The spatial meshes and geometry plots extend across
+the full configured world radius in each plotted direction, including the
+vacuum region; spatial heatmaps include dotted flux contours. Line profiles use
+the nearest mesh-bin center to the requested coordinate and span the world
+radius. Run the matching simulation before plotting; plotting checks that
+statepoint mesh, detector, and energy bins agree with the supplied config.
+Matplotlib is required and can be installed with
 `python -m pip install -e ".[plot]"`.
 
 ## Tests

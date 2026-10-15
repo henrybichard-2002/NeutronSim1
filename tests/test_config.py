@@ -59,6 +59,19 @@ def test_invalid_visualization_mesh_resolution_is_rejected(tmp_path: Path) -> No
         load_config(path)
 
 
+def test_marginal_coordinates_can_cover_the_world_radius(tmp_path: Path) -> None:
+    text = EXAMPLE.read_text(encoding="utf-8")
+    text += "\nvisualization:\n  marginal_x_cm: 30.0\n  marginal_y_cm: -30.0\n  marginal_z_cm: 30.0\n"
+    path = tmp_path / "world_marginals.yaml"
+    path.write_text(text, encoding="utf-8")
+
+    config = load_config(path)
+
+    assert config.visualization.marginal_x_cm == 30.0
+    assert config.visualization.marginal_y_cm == -30.0
+    assert config.visualization.marginal_z_cm == 30.0
+
+
 @pytest.mark.parametrize(
     ("filename", "expected_thicknesses_mm"),
     [
