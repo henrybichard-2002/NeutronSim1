@@ -79,7 +79,7 @@ materials:
       - c_H_in_H2O
 
 settings:
-  particles: 1000000
+  particles: 10000
   batches: 10
   inactive: 0
   seed: 12345

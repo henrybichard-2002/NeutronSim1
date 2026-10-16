@@ -17,11 +17,25 @@ OpenMC must be available on `PATH`, and its nuclear-data library must be
 configured (for example, with `OPENMC_CROSS_SECTIONS` pointing to
 `cross_sections.xml`).
 
-Then install this project and its test dependency:
+Install this project and the plotting dependency into the same environment as
+OpenMC. This matters when both a project `.venv` and the `neutrons-openmc`
+Conda environment are active: a `python` or `iec-neutrons` command may resolve
+to the virtual environment, where OpenMC or Matplotlib may not be installed.
+From the project root, use the OpenMC environment explicitly. For the
+environment used in this setup:
 
 ```sh
-python -m pip install -e ".[test]"
+export OPENMC_ENV=/home/Romulus1/miniforge3/envs/neutrons-openmc
+conda run -p "$OPENMC_ENV" python -m pip install -e ".[plot,test]"
+export OPENMC_CROSS_SECTIONS="$PWD/runs/example/cross_sections.xml"
 ```
+
+If your OpenMC environment is in a different location, replace the path with
+that environment's prefix. Set `OPENMC_CROSS_SECTIONS` to the cross-section
+index on your machine if it is not `runs/example/cross_sections.xml`. The
+`conda run -p ...` form selects the correct Python even when another
+environment (such as `.venv`) is active; continue using it for project
+commands below.
 
 ## Configure and run
 
@@ -46,16 +60,20 @@ compatible photon interaction data.
 Build OpenMC XML inputs without starting a simulation:
 
 ```sh
-iec-neutrons build config/reactorpath1.yaml
+conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
+  build config/reactorpath1.yaml
 ```
 
 Run any one path (each preliminary configuration is set to 100,000 particles
 per batch and 10 batches):
 
 ```sh
-iec-neutrons run config/reactorpath1.yaml
-iec-neutrons run config/reactorpath2.yaml
-iec-neutrons run config/reactorpath3.yaml
+conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
+  run config/reactorpath1.yaml
+conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
+  run config/reactorpath2.yaml
+conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
+  run config/reactorpath3.yaml
 ```
 
 Both commands accept `--output-dir`; by default files go to
@@ -83,10 +101,12 @@ flux spectrum in that box (not a detector-response/count-rate simulation).
 Detector dimensions can be changed with `width_x_cm`, `width_y_cm`, and
 `thickness_z_cm`.
 
-Plot the results from the statepoint:
+Plot the results from the statepoint using the same OpenMC Python environment:
 
 ```sh
-iec-neutrons plot config/reactorpath1.yaml runs/reactorpath1/statepoint.10.h5
+conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
+  plot config/reactorpath1.yaml \
+  runs/reactorpath1/statepoint.10.h5
 ```
 
 Plots are written to `runs/reactorpath1/plots/` by default. The output contains
@@ -102,8 +122,9 @@ Line profiles use the nearest mesh-bin center to
 the requested coordinate and span the world radius. Plotting checks that the
 statepoint mesh fits within the configured world, energy bins match, and any
 detector tally matches the supplied config.
-Matplotlib is required and can be installed with
-`python -m pip install -e ".[plot]"`.
+Matplotlib is required; install it into the OpenMC environment with the
+`.[plot]` extra shown above. Run the plot command with that environment's
+Python (rather than a `iec-neutrons` executable that might belong to `.venv`).
 
 The source-volume flux spectrum and detector spectrum require statepoints
 generated with the current model tallies. Older statepoints remain plottable
@@ -114,8 +135,10 @@ Rerun the simulation to obtain the separated source spectrum and detector
 spectrum:
 
 ```sh
-iec-neutrons run config/example.yaml
-iec-neutrons plot config/example.yaml runs/example/statepoint.10.h5
+conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
+  run config/example.yaml
+conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
+  plot config/example.yaml runs/example/statepoint.10.h5
 ```
 
 Plot appearance is controlled in the `PLOT_STYLE` block near the top of
@@ -173,6 +196,99 @@ Voxelization is a visualization approximation: features thinner than a voxel
 may be omitted or assigned to an adjacent material. Rendering cost grows
 cubically with this setting, so increase it gradually. XY and XZ transport
 maps remain separate central-plane views.
+
+## Compiled IEC fusion source
+
+The default source remains the simple 14.1 MeV cylindrical source. To use the
+separate C++ fusion source instead, run (inside the same environment that has
+OpenMC installed):
+
+```sh
+conda run -p "$OPENMC_ENV" python examples/run_custom_source.py \
+  config/reactorpath1.yaml --plot
+```
+
+The runner compiles [`custom_source.cpp`](src/iec_neutrons/custom_source.cpp)
+against the active environment's OpenMC headers and `libopenmc.so`, substitutes
+an `openmc.CompiledSource` for the model's default source, and starts the
+fixed-source run. `--plot` creates the plots after the run using Matplotlib in
+that same Python environment. By default, all files for this custom-source run
+are kept together in `runs/<config-name>-custom-source/` (for example,
+`runs/reactorpath2-custom-source/`), separate from the standard run at
+`runs/reactorpath2/`. The statepoint and generated plots are in that folder.
+Set `OPENMC_PREFIX` if the OpenMC headers and shared library are not under the
+active Python environment. `--source-cpp`, `--compiler`, `--output-dir`, and
+`--parameters` can override their defaults.
+
+To plot an already completed custom-source run without rerunning it, pass the
+actual statepoint path printed by OpenMC. The run made before this directory
+change is in `runs/custom_source/`:
+
+```sh
+conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
+  plot config/reactorpath2.yaml runs/custom_source/statepoint.10.h5
+```
+
+For a fresh run and plots in one command, use the `--plot` example above.
+
+The C++ source uses the OpenMC 0.16 compiled-source ABI (`openmc_create_source`)
+and implements the Bosch-Hale total cross sections for T(d,n)4He,
+D(d,n)3He, and D(d,p)T. D-D events are selected using the sum of both branch
+cross sections, and proton-branch events are rejected because this source emits
+only neutrons. Two-body product energies and directions are calculated from
+relativistic four-momentum conservation; the outgoing neutron is isotropic in
+the center-of-momentum frame. Bosch-Hale total cross sections do not provide
+differential angular distributions, so this isotropic angular assumption is
+explicit and should not be mistaken for an evaluated angular model.
+
+The C++ defaults are illustrative, not a measured IEC plasma model: a 4.05 cm
+anode radius, 0.73 cm cathode radius, 35 cm source height, 90 keV accelerating
+voltage, 300 K neutral gas, and 50% tritium in the target. Beam-target events
+are selected by rejection sampling with the annular-cylinder volume Jacobian,
+the configured neutral radial-density profile, Bosch-Hale cross section, and
+relativistic Moller flux factor. The profile is linearly interpolated in
+`radius_fraction:density` points, normalized radius `r/r_anode`; it must span
+0 to 1. The gas is axially uniform and has a truncated Maxwell velocity
+distribution (12 thermal standard deviations, whose omitted tail probability
+is negligible). The user-supplied `zone_beam_target`, `zone_beam_wall`, and
+`zone_beam_beam` parameters are relative probabilities for selecting the
+respective emitted-neutron source populations. The beam-wall and beam-beam
+populations are disabled by default because their rates require device-specific
+grid transparency and beam-density/current distributions that cannot be
+inferred from geometry alone.
+
+Parameters are semicolon-separated `key=value` pairs. For example:
+
+```sh
+python examples/run_custom_source.py config/reactorpath1.yaml \
+  --parameters 'r_anode_cm=4.05;r_cathode_cm=0.73;half_height_cm=17.5;voltage_kev=90;neutral_temperature_k=300;tritium_fraction=0.8;zone_beam_target=1;zone_beam_wall=0;zone_beam_beam=0;source_strength=1;neutral_profile=0:1,0.5:0.8,1:0.4'
+```
+
+`tritium_fraction` is the local target tritium fraction (and the beam isotope
+fraction for beam-beam pairs); `neutral_profile` is a nonnegative relative
+density profile. `source_strength` is the OpenMC source strength. Because
+OpenMC source tallies are normalized per source particle, this does not by
+itself convert tallies to a physical rate; scale results by the measured neutron
+emission rate as appropriate.
+
+The radial expression used for the local beam energy is
+`V_applied * ln(r/r_anode) / ln(r_cathode/r_anode)`, matching the requested
+concentric-cylinder profile and giving 0 at the outer anode and full voltage
+magnitude at the cathode. It is the charge-free cylindrical Laplace solution,
+not a Poisson solution including plasma space charge; a signed negative
+cathode potential is implicit for positive deuterons moving inward. Space
+charge, nonuniform beam distributions, grid-impact probabilities, and
+species-resolved measured densities must be supplied or modeled separately
+before the resulting source can be called a predictive IEC yield model.
+
+Masses in the C++ implementation are bare nuclear masses, with each reaction
+Q-value derived from the same mass set (the D-T, D-D neutron, and D-D proton
+Q-values are about 17.58925, 3.26886, and 4.03266 MeV, respectively). The mass
+values are based on evaluated atomic masses with electron masses and binding
+energies removed consistently (AME2020; Wang et al., *Chinese Physics C* 45
+(2021), 030003, DOI: [10.1088/1674-1137/abddaf](https://doi.org/10.1088/1674-1137/abddaf)).
+The Bosch-Hale fit is from Bosch and Hale, *Nuclear Fusion* 32 (1992), 611-631,
+DOI: [10.1088/0029-5515/32/4/I07](https://doi.org/10.1088/0029-5515/32/4/I07).
 
 ## Tests
 
