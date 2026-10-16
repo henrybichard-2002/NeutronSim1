@@ -63,8 +63,8 @@ materials:
       - c_H_in_H2O
 
 settings:
-  particles: 100000
-  batches: 10
+  particles: 1000000
+  batches: 100
   inactive: 0
   seed: 12345
 
@@ -76,7 +76,8 @@ tally:
 visualization:
   mesh_bins: 150
   slice_thickness_cm: 0.4
-  energy_bins_mev: [1.0, 4.0, 8.0, 12.0, 16.0]
-  marginal_x_cm: 0.0
+  energy_bins_mev: [1.0, 4.0, 8.0, 12.0, 14.0]
+  marginal_x_cm: 10.0
   marginal_y_cm: 0.0
   marginal_z_cm: 0.0
+conda 

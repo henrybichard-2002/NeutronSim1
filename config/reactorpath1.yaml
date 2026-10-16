@@ -46,9 +46,9 @@ geometry:
       material: aluminium
     - name: air_3
       thickness_mm: 120.0
-      height_cm: 100.0
+      height_cm: 70.0
       material: air
-  world_radius_cm: 70.0
+  world_radius_cm: 50.0
 
 materials:
   air:
@@ -72,7 +72,7 @@ materials:
 
 settings:
   particles: 1000000
-  batches: 10
+  batches: 100
   inactive: 0
   seed: 12345
 
@@ -82,7 +82,7 @@ tally:
   energy_bin_width_mev: 0.1
 
 visualization:
-  mesh_bins: 1024
+  mesh_bins: 256
   slice_thickness_cm: 0.4
   # Fewer broad energy groups for spatial-map panels; the detector spectrum
   # and region spectra retain the full 0.1 MeV bins above.
