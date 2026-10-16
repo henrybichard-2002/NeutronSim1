@@ -22,20 +22,21 @@ OpenMC. This matters when both a project `.venv` and the `neutrons-openmc`
 Conda environment are active: a `python` or `iec-neutrons` command may resolve
 to the virtual environment, where OpenMC or Matplotlib may not be installed.
 From the project root, use the OpenMC environment explicitly. For the
-environment used in this setup:
+environment used in this setup, set these variables once per terminal:
 
 ```sh
 export OPENMC_ENV=/home/Romulus1/miniforge3/envs/neutrons-openmc
-conda run -p "$OPENMC_ENV" python -m pip install -e ".[plot,test]"
 export OPENMC_CROSS_SECTIONS="$PWD/runs/example/cross_sections.xml"
+export PYTHONPATH="$PWD/src"
+"$OPENMC_ENV/bin/python" -m pip install -e ".[plot,test]"
 ```
 
 If your OpenMC environment is in a different location, replace the path with
 that environment's prefix. Set `OPENMC_CROSS_SECTIONS` to the cross-section
 index on your machine if it is not `runs/example/cross_sections.xml`. The
-`conda run -p ...` form selects the correct Python even when another
-environment (such as `.venv`) is active; continue using it for project
-commands below.
+explicit `"$OPENMC_ENV/bin/python"` command avoids ambiguity when another
+environment (such as `.venv`) is active. `PYTHONPATH` points that interpreter
+at this checkout's `src/` package.
 
 ## Configure and run
 
@@ -60,20 +61,16 @@ compatible photon interaction data.
 Build OpenMC XML inputs without starting a simulation:
 
 ```sh
-conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
-  build config/reactorpath1.yaml
+"$OPENMC_ENV/bin/python" -m iec_neutrons.cli build config/reactorpath1.yaml
 ```
 
 Run any one path (each preliminary configuration is set to 100,000 particles
 per batch and 10 batches):
 
 ```sh
-conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
-  run config/reactorpath1.yaml
-conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
-  run config/reactorpath2.yaml
-conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
-  run config/reactorpath3.yaml
+"$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath1.yaml
+"$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath2.yaml
+"$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath3.yaml
 ```
 
 Both commands accept `--output-dir`; by default files go to
@@ -104,8 +101,7 @@ Detector dimensions can be changed with `width_x_cm`, `width_y_cm`, and
 Plot the results from the statepoint using the same OpenMC Python environment:
 
 ```sh
-conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
-  plot config/reactorpath1.yaml \
+"$OPENMC_ENV/bin/python" -m iec_neutrons.cli plot config/reactorpath1.yaml \
   runs/reactorpath1/statepoint.10.h5
 ```
 
@@ -135,9 +131,8 @@ Rerun the simulation to obtain the separated source spectrum and detector
 spectrum:
 
 ```sh
-conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
-  run config/example.yaml
-conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
+"$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/example.yaml
+"$OPENMC_ENV/bin/python" -m iec_neutrons.cli \
   plot config/example.yaml runs/example/statepoint.10.h5
 ```
 
@@ -204,7 +199,7 @@ separate C++ fusion source instead, run (inside the same environment that has
 OpenMC installed):
 
 ```sh
-conda run -p "$OPENMC_ENV" python examples/run_custom_source.py \
+"$OPENMC_ENV/bin/python" examples/run_custom_source.py \
   config/reactorpath1.yaml --plot
 ```
 
@@ -225,8 +220,8 @@ actual statepoint path printed by OpenMC. The run made before this directory
 change is in `runs/custom_source/`:
 
 ```sh
-conda run -p "$OPENMC_ENV" python -m iec_neutrons.cli \
-  plot config/reactorpath2.yaml runs/custom_source/statepoint.10.h5
+"$OPENMC_ENV/bin/python" -m iec_neutrons.cli plot \
+  config/reactorpath2.yaml runs/custom_source/statepoint.10.h5
 ```
 
 For a fresh run and plots in one command, use the `--plot` example above.

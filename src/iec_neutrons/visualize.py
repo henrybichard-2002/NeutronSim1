@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 import warnings
 
 from .config import SimulationConfig
@@ -25,6 +26,7 @@ class PlotStyle:
     energy_cscale: str = "log"
     uncertainty_cscale: str = "log"
     heatmap_min_percentile: float = 2.0
+    heatmap_max_percentile: float = 98.0
     spectrum_xscale: str = "linear"
     spectrum_yscale: str = "log"
     marginal_xscale: str = "linear"
@@ -55,8 +57,12 @@ def plot_results(
         import numpy as np
         import openmc
     except ImportError as exc:
-        dependency = "OpenMC" if exc.name == "openmc" else "Matplotlib"
-        raise RuntimeError(f"{dependency} is required to plot simulation results") from exc
+        dependency = exc.name or "a plotting dependency"
+        raise RuntimeError(
+            f"Could not import {dependency} while plotting with "
+            f"{sys.executable}: {exc}. Install the plotting "
+            'extra into the active environment with: python -m pip install -e ".[plot]"'
+        ) from exc
 
     matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
@@ -911,7 +917,8 @@ def _plot_spatial_map(
     positive = masked.compressed()
     positive = positive[positive > 0]
     low = _heatmap_minimum(positive, style.heatmap_min_percentile, np)
-    high = float(positive.max()) if positive.size else 1.0
+    high = _heatmap_maximum(positive, style.heatmap_max_percentile, np) if positive.size else 1.0
+
     color_scale = style.spatial_cscale if LogNorm is not None else style.uncertainty_cscale
     color_limits = style.spatial_clim if LogNorm is not None else style.uncertainty_clim
     if color_limits is not None:
@@ -971,7 +978,7 @@ def _plot_energy_map(
     norm = None
     if positives.size:
         low = _heatmap_minimum(positives, style.heatmap_min_percentile, np)
-        high = float(positives.max())
+        high = _heatmap_maximum(positive, style.heatmap_max_percentile, np)
         if style.energy_clim is not None:
             low, high = style.energy_clim
         elif high <= low:
@@ -1024,6 +1031,13 @@ def _heatmap_minimum(positive_values, percentile: float, np) -> float:
         raise ValueError("PLOT_STYLE.heatmap_min_percentile must be in [0, 100)")
     if not positive_values.size:
         return 0.0
+    return float(np.percentile(positive_values, percentile))
+
+def _heatmap_maximum(positive_values, percentile: float, np) -> float:
+    if not 0 <= percentile < 100:
+        raise ValueError("PLOT_STYLE.heatmap_max_percentile must be in [0, 100)")
+    if not positive_values.size:
+        return 1.0
     return float(np.percentile(positive_values, percentile))
 
 

@@ -6,12 +6,13 @@ from __future__ import annotations
 import argparse
 import importlib.util
 from pathlib import Path
+import sys
 
 try:
     import openmc
 except ImportError as exc:
     raise SystemExit(
-        "OpenMC is not importable in this Python environment. Run this script "
+        f"Could not import OpenMC with {sys.executable}: {exc}. Run this script "
         "with the Python from the neutrons-openmc environment."
     ) from exc
 
