@@ -232,6 +232,15 @@ def build_model(config: SimulationConfig):
     production_tally.scores = ["events"]
     tallies.append(production_tally)
 
+    leakage_tally = openmc.Tally(name="world_neutron_leakage_spectrum")
+    leakage_tally.filters = [
+        openmc.SurfaceFilter(boundary),
+        make_energy_filter(energy_edges_ev),
+        openmc.ParticleFilter("neutron"),
+    ]
+    leakage_tally.scores = ["current"]
+    tallies.append(leakage_tally)
+
     mesh_bins = config.visualization.mesh_bins
     radius = config.geometry.world_radius_cm
     half_slice = config.visualization.slice_thickness_cm / 2

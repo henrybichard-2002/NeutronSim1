@@ -1,0 +1,95 @@
+# IEC source and radial layers; lengths are cm unless thickness_mm is used.
+source:
+  radius_cm: 3.8
+  height_cm: 35.0
+  energy_mev: 14.1
+
+custom_source:
+  # The wall reaction zone is sampled just inside the anode at the cavity
+  # radius (3.8 cm); the cathode remains the inner beam/plasma radius.
+  cathode_radius_cm: 0.73
+  voltage_kev: 90.0
+  neutral_temperature_k: 300.0
+  tritium_fraction: 0.5
+  zone_beam_target: 1.0
+  zone_beam_wall: 1.0
+  zone_beam_beam: 1.0
+  source_strength: 1.0
+  neutral_profile:
+    - [0.0, 1.0]
+    - [1.0, 1.0]
+
+detector:
+  x_cm: 20.0
+  y_cm: 0.0
+  z_cm: 0.0
+  width_x_cm: 0.4
+  width_y_cm: 0.4
+  thickness_z_cm: 0.05
+
+geometry:
+  cavity:
+    radius_cm: 3.8
+    height_cm: 70.0
+  layers:
+    - name: aluminium_1
+      thickness_mm: 14.0
+      height_cm: 70.0
+      material: aluminium
+    - name: water_1
+      thickness_mm: 15.0
+      height_cm: 70.0
+      material: water
+    - name: aluminium_2
+      thickness_mm: 3.0
+      height_cm: 70.0
+      material: aluminium
+    - name: air_1
+      thickness_mm: 500.0
+      height_cm: 100.0
+      material: air
+  # Outer radius is 57.0 cm; the 100 cm-tall air cylinder has a 75.8 cm
+  # farthest corner, so this spherical world fully encloses it.
+  world_radius_cm: 80.0
+
+materials:
+  air:
+    density_g_cm3: 0.001225
+    elements:
+      N: 0.78084
+      O: 0.20946
+      Ar: 0.00934
+      C: 0.00036
+  aluminium:
+    density_g_cm3: 2.70
+    elements:
+      Al: 1
+  water:
+    density_g_cm3: 1.0
+    elements:
+      H: 2
+      O: 1
+    thermal_scattering:
+      - c_H_in_H2O
+
+settings:
+  particles: 10000
+  batches: 10
+  inactive: 0
+  seed: 12345
+
+tally:
+  # Covers moderated neutrons and the 14.1 MeV D-T source, including
+  # higher-energy kinematic tails and neutron-multiplying reactions.
+  energy_min_mev: 0.0
+  energy_max_mev: 20.0
+  energy_bin_width_mev: 0.1
+
+visualization:
+  mesh_bins: 128
+  voxel_bins: 64
+  slice_thickness_cm: 0.4
+  energy_bins_mev: [0.0, 0.1, 1.0, 2.0, 8.0, 12.0, 14.0, 16.0, 20.0]
+  marginal_x_cm: 20.0
+  marginal_y_cm: 0.0
+  marginal_z_cm: 0.0

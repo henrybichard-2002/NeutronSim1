@@ -978,7 +978,7 @@ def _plot_energy_map(
     norm = None
     if positives.size:
         low = _heatmap_minimum(positives, style.heatmap_min_percentile, np)
-        high = _heatmap_maximum(positive, style.heatmap_max_percentile, np)
+        high = _heatmap_maximum(positives, style.heatmap_max_percentile, np)
         if style.energy_clim is not None:
             low, high = style.energy_clim
         elif high <= low:

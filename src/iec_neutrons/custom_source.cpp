@@ -17,6 +17,7 @@ namespace {
 constexpr double PI = 3.14159265358979323846;
 constexpr double BOLTZMANN_MEV_PER_K = 8.617333262e-11;
 constexpr double MAXWELL_CUTOFF_SIGMAS = 12.0;
+constexpr double WALL_SAMPLE_OFFSET_CM = 1.0e-6;
 
 // Bare nuclear rest masses in MeV/c^2, derived consistently from AME2020
 // evaluated atomic masses. The Q-values use this same nuclear-mass convention.
@@ -438,7 +439,7 @@ Event sample_beam_target_event(
   double radius;
   if (wall) {
     const double theta = 2.0 * PI * random_unit(seed);
-    radius = parameters.cathode_radius_cm;
+    radius = parameters.anode_radius_cm - WALL_SAMPLE_OFFSET_CM;
     position = {radius * std::cos(theta), radius * std::sin(theta),
                 parameters.half_height_cm * (2.0 * random_unit(seed) - 1.0)};
     beam_direction = {-std::cos(theta), -std::sin(theta), 0.0};

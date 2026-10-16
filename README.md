@@ -203,6 +203,40 @@ OpenMC installed):
   config/reactorpath1.yaml --plot
 ```
 
+The `gen_reactor` configuration is a ready-to-run custom-source example:
+
+```sh
+"$OPENMC_ENV/bin/python" examples/run_custom_source.py \
+  config/gen_reactor.yaml --plot
+```
+
+It models an anode/inner-cavity radius of 38 mm (76 mm cavity diameter),
+14 mm aluminium, 15 mm water, 3 mm aluminium, and a 500 mm radial air layer.
+The cavity and first three layers are 70 cm tall; the air cylinder is 100 cm
+tall. Its 35 cm source includes D-T and D-D reactions, with beam-target,
+beam-wall (anode/inner cavity wall), and beam-beam zones all enabled. The wall
+sample is placed just inside the anode surface to avoid starting a particle on
+a material boundary; it retains the plugin's applied-voltage beam energy and
+is an idealized wall-impact population, not a self-consistent ion trajectory.
+The three zone weights are equal starting weights, not
+measured or calculated physical reaction-rate fractions; set them from
+device-specific data for a predictive yield model. The 50% tritium fraction
+permits both D-T and D-D channels in the configured source.
+
+The runner prints a post-run summary with track-length-weighted mean neutron
+energies and highest occupied energy-bin upper edges in each region, a
+world-boundary outward-current estimate, secondary neutron/photon production,
+and per-material reaction tallies. These are source-normalized Monte Carlo
+estimates, not exact integer particle counts. The energy summaries use 0.1 MeV
+bins from 0 to 20 MeV; the reported maximum is therefore a bin-edge estimate,
+not an event-by-event maximum. Per-material scattering energy loss is estimated
+from the incoming/outgoing energy-transfer tally using bin midpoints. The
+escaped-minus-primary comparison indicates net leakage relative to the source
+histories; it is not by itself a complete neutron conservation balance because
+absorption and secondary production must also be considered. The report's
+interaction scores, energy transfer, and secondary production help inspect
+those processes.
+
 The runner compiles [`custom_source.cpp`](src/iec_neutrons/custom_source.cpp)
 against the active environment's OpenMC headers and `libopenmc.so`, substitutes
 an `openmc.CompiledSource` for the model's default source, and starts the
@@ -230,7 +264,10 @@ The C++ source uses the OpenMC 0.16 compiled-source ABI (`openmc_create_source`)
 and implements the Bosch-Hale total cross sections for T(d,n)4He,
 D(d,n)3He, and D(d,p)T. D-D events are selected using the sum of both branch
 cross sections, and proton-branch events are rejected because this source emits
-only neutrons. Two-body product energies and directions are calculated from
+only neutrons. The `custom_source` YAML block in `gen_reactor.yaml` sets the
+plugin's reaction-zone weights, potential, neutral temperature, isotope
+fraction, and radial neutral-density profile. An explicit `--parameters`
+argument overrides those values. Two-body product energies and directions are calculated from
 relativistic four-momentum conservation; the outgoing neutron is isotropic in
 the center-of-momentum frame. Bosch-Hale total cross sections do not provide
 differential angular distributions, so this isotropic angular assumption is
@@ -249,7 +286,7 @@ is negligible). The user-supplied `zone_beam_target`, `zone_beam_wall`, and
 `zone_beam_beam` parameters are relative probabilities for selecting the
 respective emitted-neutron source populations. The beam-wall and beam-beam
 populations are disabled by default because their rates require device-specific
-grid transparency and beam-density/current distributions that cannot be
+wall-impact probabilities and beam-density/current distributions that cannot be
 inferred from geometry alone.
 
 Parameters are semicolon-separated `key=value` pairs. For example:

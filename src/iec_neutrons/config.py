@@ -65,6 +65,19 @@ class PhysicsConfig:
 
 
 @dataclass(frozen=True)
+class CustomSourceConfig:
+    cathode_radius_cm: float
+    voltage_kev: float
+    neutral_temperature_k: float
+    tritium_fraction: float
+    zone_beam_target: float
+    zone_beam_wall: float
+    zone_beam_beam: float
+    source_strength: float
+    neutral_profile: tuple[tuple[float, float], ...]
+
+
+@dataclass(frozen=True)
 class MaterialConfig:
     density_g_cm3: float
     elements: dict[str, float] | None
@@ -106,6 +119,7 @@ class SimulationConfig:
     tally: TallyConfig
     visualization: VisualizationConfig
     physics: PhysicsConfig
+    custom_source: CustomSourceConfig | None = None
 
 
 def _mapping(value: Any, path: str) -> dict[str, Any]:
@@ -159,7 +173,7 @@ def load_config(path: str | Path) -> SimulationConfig:
     _keys(
         root,
         {"source", "geometry", "materials", "settings", "tally"},
-        {"visualization", "detector", "physics"},
+        {"visualization", "detector", "physics", "custom_source"},
         "configuration",
     )
 
@@ -544,6 +558,121 @@ def load_config(path: str | Path) -> SimulationConfig:
         raise ConfigError("physics.photon_transport must be a boolean")
     physics = PhysicsConfig(photon_transport=photon_transport)
 
+    custom_source = None
+    if "custom_source" in root:
+        custom_data = _mapping(root["custom_source"], "custom_source")
+        _keys(
+            custom_data,
+            {
+                "cathode_radius_cm",
+                "voltage_kev",
+                "neutral_temperature_k",
+                "tritium_fraction",
+                "zone_beam_target",
+                "zone_beam_wall",
+                "zone_beam_beam",
+                "source_strength",
+                "neutral_profile",
+            },
+            set(),
+            "custom_source",
+        )
+        cathode_radius = _number(
+            custom_data["cathode_radius_cm"],
+            "custom_source.cathode_radius_cm",
+            minimum=0,
+            exclusive=True,
+        )
+        if cathode_radius >= geometry.cavity_radius_cm:
+            raise ConfigError(
+                "custom_source.cathode_radius_cm must be smaller than "
+                "geometry.cavity.radius_cm"
+            )
+        if not math.isclose(source.radius_cm, geometry.cavity_radius_cm):
+            raise ConfigError(
+                "source.radius_cm must match geometry.cavity.radius_cm when "
+                "custom_source is configured"
+            )
+        tritium_fraction = _number(
+            custom_data["tritium_fraction"],
+            "custom_source.tritium_fraction",
+            minimum=0,
+        )
+        if tritium_fraction > 1:
+            raise ConfigError("custom_source.tritium_fraction must not exceed 1")
+        zone_weights = {
+            key: _number(custom_data[key], f"custom_source.{key}", minimum=0)
+            for key in ("zone_beam_target", "zone_beam_wall", "zone_beam_beam")
+        }
+        if not any(zone_weights.values()):
+            raise ConfigError("custom_source must enable at least one reaction zone")
+        if zone_weights["zone_beam_beam"] > 0 and tritium_fraction in (0, 1):
+            raise ConfigError(
+                "custom_source.tritium_fraction must be between 0 and 1 when "
+                "the beam-beam zone is enabled"
+            )
+        raw_profile = custom_data["neutral_profile"]
+        if not isinstance(raw_profile, list) or len(raw_profile) < 2:
+            raise ConfigError(
+                "custom_source.neutral_profile must contain at least two "
+                "[radius_fraction, relative_density] points"
+            )
+        profile = tuple(
+            (
+                _number(
+                    point[0],
+                    f"custom_source.neutral_profile[{index}][0]",
+                    minimum=0,
+                ),
+                _number(
+                    point[1],
+                    f"custom_source.neutral_profile[{index}][1]",
+                    minimum=0,
+                ),
+            )
+            for index, point in enumerate(raw_profile)
+            if isinstance(point, list) and len(point) == 2
+        )
+        if len(profile) != len(raw_profile):
+            raise ConfigError(
+                "each custom_source.neutral_profile point must be a pair"
+            )
+        if (
+            profile[0][0] != 0
+            or profile[-1][0] != 1
+            or any(
+                right[0] <= left[0]
+                for left, right in zip(profile, profile[1:])
+            )
+        ):
+            raise ConfigError(
+                "custom_source.neutral_profile radius fractions must increase "
+                "from 0 to 1"
+            )
+        custom_source = CustomSourceConfig(
+            cathode_radius_cm=cathode_radius,
+            voltage_kev=_number(
+                custom_data["voltage_kev"],
+                "custom_source.voltage_kev",
+                minimum=0,
+                exclusive=True,
+            ),
+            neutral_temperature_k=_number(
+                custom_data["neutral_temperature_k"],
+                "custom_source.neutral_temperature_k",
+                minimum=0,
+            ),
+            tritium_fraction=tritium_fraction,
+            **zone_weights,
+            source_strength=_number(
+                custom_data["source_strength"],
+                "custom_source.source_strength",
+                minimum=0,
+                exclusive=True,
+            ),
+            neutral_profile=profile,
+        )
+
     return SimulationConfig(
         source=source,
         detector=detector,
@@ -553,4 +682,5 @@ def load_config(path: str | Path) -> SimulationConfig:
         tally=tally,
         visualization=visualization,
         physics=physics,
+        custom_source=custom_source,
     )

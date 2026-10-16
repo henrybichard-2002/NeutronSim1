@@ -82,3 +82,39 @@ def test_neutron_only_configs_do_not_add_photon_tallies() -> None:
     assert not model.settings.photon_transport
     assert "voxel_flux" not in names
     assert "voxel_photon_heating" not in names
+
+
+def test_gen_reactor_geometry_and_custom_source_zones() -> None:
+    config = load_config(CONFIG_DIR / "gen_reactor.yaml")
+    assert config.source.radius_cm == pytest.approx(3.8)
+    assert config.source.height_cm == pytest.approx(35.0)
+    assert config.geometry.cavity_height_cm == pytest.approx(70.0)
+    assert [layer.thickness_cm for layer in config.geometry.layers] == pytest.approx(
+        [1.4, 1.5, 0.3, 50.0]
+    )
+    assert [layer.height_cm for layer in config.geometry.layers] == pytest.approx(
+        [70.0, 70.0, 70.0, 100.0]
+    )
+    assert config.geometry.layers[-1].radius_cm == pytest.approx(57.0)
+    assert config.geometry.world_radius_cm == 80.0
+    assert config.custom_source is not None
+    assert config.custom_source.tritium_fraction == pytest.approx(0.5)
+    assert (
+        config.custom_source.zone_beam_target,
+        config.custom_source.zone_beam_wall,
+        config.custom_source.zone_beam_beam,
+    ) == (1.0, 1.0, 1.0)
+    assert config.tally.energy_bins_mev[0] == 0.0
+    assert config.tally.energy_bins_mev[-1] == 20.0
+
+
+def test_world_neutron_leakage_spectrum_uses_outward_surface_current() -> None:
+    openmc = pytest.importorskip("openmc")
+    model = build_model(load_config(CONFIG_DIR / "gen_reactor.yaml"))
+    tallies = {tally.name: tally for tally in model.tallies}
+
+    leakage = tallies["world_neutron_leakage_spectrum"]
+    assert leakage.scores == ["current"]
+    assert any(isinstance(item, openmc.SurfaceFilter) for item in leakage.filters)
+    assert any(isinstance(item, openmc.EnergyFilter) for item in leakage.filters)
+    assert any(isinstance(item, openmc.ParticleFilter) for item in leakage.filters)
