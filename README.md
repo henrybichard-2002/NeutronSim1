@@ -14,8 +14,7 @@ the IEC plasma, ion trajectories, or source-specific energy broadening.
 Use Python 3.10 or newer. Install OpenMC and its nuclear data library using the
 [official installation guide](https://docs.openmc.org/en/stable/quickinstall.html).
 OpenMC must be available on `PATH`, and its nuclear-data library must be
-configured (for example, with `OPENMC_CROSS_SECTIONS` pointing to
-`cross_sections.xml`).
+configured through `OPENMC_CROSS_SECTIONS`.
 
 Install this project and the plotting dependency into the same environment as
 OpenMC. This matters when both a project `.venv` and the `neutrons-openmc`
@@ -26,17 +25,47 @@ environment used in this setup, set these variables once per terminal:
 
 ```sh
 export OPENMC_ENV=/home/Romulus1/miniforge3/envs/neutrons-openmc
-export OPENMC_CROSS_SECTIONS="$PWD/runs/example/cross_sections.xml"
 export PYTHONPATH="$PWD/src"
 "$OPENMC_ENV/bin/python" -m pip install -e ".[plot,test]"
 ```
 
 If your OpenMC environment is in a different location, replace the path with
-that environment's prefix. Set `OPENMC_CROSS_SECTIONS` to the cross-section
-index on your machine if it is not `runs/example/cross_sections.xml`. The
-explicit `"$OPENMC_ENV/bin/python"` command avoids ambiguity when another
-environment (such as `.venv`) is active. `PYTHONPATH` points that interpreter
-at this checkout's `src/` package.
+that environment's prefix. The explicit `"$OPENMC_ENV/bin/python"` command
+avoids ambiguity when another environment (such as `.venv`) is active.
+`PYTHONPATH` points that interpreter at this checkout's `src/` package.
+
+## Cross-section indexes
+
+Each configuration has a corresponding trimmed cross-section index under
+[`config/cross_sections/`](config/cross_sections/). These list only the
+neutron nuclides and thermal-scattering tables used by that configuration:
+
+| Configuration | Cross-section index |
+| --- | --- |
+| `reactorpath1.yaml` | `config/cross_sections/reactorpath1.xml` |
+| `reactorpath2.yaml` | `config/cross_sections/reactorpath2.xml` |
+| `reactorpath3.yaml` | `config/cross_sections/reactorpath3.xml` |
+| `example.yaml` | `config/cross_sections/example.xml` |
+| `he3_detector.yaml` | `config/cross_sections/he3_detector.xml` |
+| `gen_reactor.yaml` | `config/cross_sections/gen_reactor.xml` |
+
+Before a run, set `OPENMC_CROSS_SECTIONS` to the index for that config. For
+example:
+
+```sh
+OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/reactorpath1.xml" \
+  "$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath1.yaml
+OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/gen_reactor.xml" \
+  "$OPENMC_ENV/bin/python" examples/run_custom_source.py config/gen_reactor.yaml
+```
+
+The index files use the local data directory
+`/home/Romulus1/NeutronsInMatter`. If your nuclear data is elsewhere, update
+the `<directory>` element in each index. The `he3_detector` configuration
+enables photon transport; its index needs compatible photon interaction
+libraries as well as the listed neutron and thermal data. Photon libraries
+were not present in the local data index used to create these files, so add
+photon entries from your photon library before running that configuration.
 
 ## Configure and run
 
@@ -49,24 +78,12 @@ uniform-volume, monoenergetic cylindrical source: 1 cm diameter, 35 cm tall,
 shells; `thickness_mm` is the thickness of each shell. In these three configs
 every layer is 60 cm tall.
 
-Materials specify either element atom ratios or nuclide atom ratios, along with
-a density in g/cm3. Optional thermal-scattering table names are passed through
-to OpenMC (`c_H_in_H2O` for water). The preliminary configurations model dry
-air using natural N/O/Ar/C elemental proportions, aluminium at 2.70 g/cm3, and
-water at 1.0 g/cm3. The selected nuclear data library must include the natural
-isotopes for H, C, N, O, Ar and Al, plus the `c_H_in_H2O` thermal-scattering
-table. The `gen_reactor` and `he3_detector.yaml` configurations also need a
-helium-3 neutron table. The project example index at
-`runs/example/cross_sections.xml` includes the local He-3 table entry. For a
-different cross-section index, add an entry pointing to the installed He-3
-HDF5 file (update the path if your library is in a different location):
-
-```xml
-<library materials="He3" path="Npaths/JEFF40-Processed-OPENMC-HDF5/2-He-3g-293.6.h5" type="neutron" />
-```
-
-Ensure `OPENMC_CROSS_SECTIONS` names the index you edited before running the
-`gen_reactor` configuration.
+Materials specify either element atom ratios or nuclide atom ratios, along
+with a density in g/cm3. Optional thermal-scattering table names are passed
+through to OpenMC (for example, `c_H_in_H2O` for water). The configuration-
+specific indexes above include the corresponding natural-isotope neutron
+tables and thermal-scattering tables, including He-3 for the two detector
+configurations.
 
 The standalone `he3_detector.yaml` example also enables photon transport and
 therefore needs compatible photon interaction data.
@@ -81,9 +98,12 @@ Run any one path (each preliminary configuration is set to 100,000 particles
 per batch and 10 batches):
 
 ```sh
-"$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath1.yaml
-"$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath2.yaml
-"$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath3.yaml
+OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/reactorpath1.xml" \
+  "$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath1.yaml
+OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/reactorpath2.xml" \
+  "$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath2.yaml
+OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/reactorpath3.xml" \
+  "$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath3.yaml
 ```
 
 Both commands accept `--output-dir`; by default files go to
