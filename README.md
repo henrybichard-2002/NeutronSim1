@@ -210,8 +210,14 @@ fission-neutron production, (n,2n), (n,3n), and (n,gamma) scores.
 `neutron_energy_transfer_*` tallies bin incoming and outgoing neutron energies
 to show scattering energy loss or gain; `secondary_particle_production`
 records neutron/photon secondary yields. The He-3 gas also has an energy-binned
-(n,p) response tally. Reaction channels and yields are limited by the selected
-evaluated nuclear data and do not imply every conceivable reaction is present.
+(n,p) response tally. Plotting a statepoint from a He-3 configuration writes
+`he3_neutron_spectrum_<component>.png` for the volume-averaged neutron flux in
+the active gas and `he3_capture_spectrum_<component>.png` for (n,p) reactions
+grouped by the incident neutron energy. The latter is the energy-dependent
+capture response, not a pulse-height spectrum: the model does not simulate
+charge collection or infer neutron energy from the tube's electrical signal.
+Reaction channels and yields are limited by the selected evaluated nuclear
+data and do not imply every conceivable reaction is present.
 
 The He-3 example enables `physics.photon_transport` and requests photon energy
 deposition tallies. Photon transport requires compatible photon interaction

@@ -134,6 +134,8 @@ def plot_results(
             for view in ("xy", "xz")
         }
         spectra = {}
+        he3_gas_spectra = {}
+        he3_response_spectra = {}
         if "flux_spectrum_source" in available_names:
             spectra["Source volume"] = _spectrum_values(
                 statepoint.get_tally(name="flux_spectrum_source"), np
@@ -157,6 +159,79 @@ def plot_results(
         for layer in config.geometry.layers:
             spectra[layer.name] = _spectrum_values(
                 statepoint.get_tally(name=f"flux_spectrum_{layer.name}"), np
+            )
+        for component in config.geometry.components:
+            material = config.materials[component.material]
+            if "He3" not in (material.nuclides or {}):
+                continue
+
+            flux_tally_name = f"flux_spectrum_{component.name}"
+            if flux_tally_name in available_names:
+                he3_gas_spectra[component.name] = _spectrum_values(
+                    statepoint.get_tally(name=flux_tally_name), np
+                )
+                spectra[f"{component.name} (He-3 gas)"] = he3_gas_spectra[
+                    component.name
+                ]
+
+            response_tally_name = f"he3_n_p_spectrum_{component.name}"
+            if response_tally_name not in available_names:
+                warnings.warn(
+                    f"Statepoint has no {response_tally_name!r} tally; "
+                    "the He-3 capture spectrum is unavailable. Rerun the "
+                    "simulation with the current model.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                continue
+
+            response_tally = statepoint.get_tally(name=response_tally_name)
+            energy_filter = next(
+                (
+                    item
+                    for item in response_tally.filters
+                    if isinstance(item, openmc.EnergyFilter)
+                ),
+                None,
+            )
+            if energy_filter is None:
+                raise ValueError(
+                    f"He-3 response tally {response_tally_name!r} "
+                    "has no energy filter"
+                )
+            energy_bins_ev = np.asarray(energy_filter.bins, dtype=float)
+            if energy_bins_ev.ndim != 2 or energy_bins_ev.shape[1] != 2:
+                raise ValueError(
+                    f"He-3 response tally {response_tally_name!r} "
+                    "has unexpected energy bins"
+                )
+            response_edges_mev = np.concatenate(
+                (energy_bins_ev[:1, 0], energy_bins_ev[:, 1])
+            ) / 1.0e6
+            if not np.allclose(
+                response_edges_mev, config.tally.energy_bins_mev
+            ):
+                raise ValueError(
+                    f"He-3 response tally {response_tally_name!r} energy "
+                    "bins do not match the supplied configuration"
+                )
+            response_mean = np.asarray(
+                response_tally.get_values(scores=["(n,p)"], value="mean"),
+                dtype=float,
+            ).reshape(-1)
+            response_std_dev = np.asarray(
+                response_tally.get_values(scores=["(n,p)"], value="std_dev"),
+                dtype=float,
+            ).reshape(-1)
+            if response_mean.size != len(response_edges_mev) - 1:
+                raise ValueError(
+                    f"He-3 response tally {response_tally_name!r} has an "
+                    "unexpected number of energy bins"
+                )
+            he3_response_spectra[component.name] = (
+                response_edges_mev,
+                response_mean,
+                response_std_dev,
             )
         detector_available = "detector_energy_spectrum" in available_names
         detector_mean = None
@@ -298,6 +373,44 @@ def plot_results(
             PLOT_STYLE,
         )
     )
+
+    for component in config.geometry.components:
+        if component.name not in he3_gas_spectra:
+            continue
+        if component.shape == "box":
+            component_volume_cm3 = float(np.prod(component.dimensions_cm))
+        else:
+            component_radius_cm, component_length_cm = component.dimensions_cm
+            component_volume_cm3 = (
+                np.pi * component_radius_cm**2 * component_length_cm
+            )
+        paths.append(
+            _plot_spectrum(
+                {f"{component.name} (He-3 gas)": (
+                    he3_gas_spectra[component.name] / component_volume_cm3
+                )},
+                total_edges,
+                f"Neutron flux spectrum in He-3 active gas: {component.name}",
+                "Volume-averaged flux (cm$^{-2}$ per source neutron)",
+                destination / f"he3_neutron_spectrum_{component.name}.png",
+                plt,
+                PLOT_STYLE,
+            )
+        )
+
+    for component_name, (edges, mean, std_dev) in he3_response_spectra.items():
+        paths.append(
+            _plot_he3_response_spectrum(
+                mean,
+                std_dev,
+                edges,
+                component_name,
+                destination / f"he3_capture_spectrum_{component_name}.png",
+                plt,
+                np,
+                PLOT_STYLE,
+            )
+        )
 
     if detector_mean is not None and detector_std_dev is not None:
         paths.append(
@@ -1234,6 +1347,50 @@ def _plot_detector_spectrum(
             0.5,
             0.5,
             "No positive detector flux sampled",
+            transform=axis.transAxes,
+            ha="center",
+            va="center",
+        )
+    axis.grid(True, which="both", alpha=0.25)
+    axis.legend()
+    figure.savefig(str(path), dpi=180)
+    plt.close(figure)
+    return path
+
+
+def _plot_he3_response_spectrum(
+    values, std_dev, edges, component_name, path, plt, np, style: PlotStyle
+) -> Path:
+    figure, axis = plt.subplots(figsize=(10, 6), constrained_layout=True)
+    axis.stairs(values, edges, color=style.spectrum_color, linewidth=1.8)
+    lower = np.maximum(values - std_dev, 0.0)
+    upper = values + std_dev
+    axis.fill_between(
+        edges,
+        np.append(lower, lower[-1]),
+        np.append(upper, upper[-1]),
+        step="post",
+        color=style.spectrum_color,
+        alpha=0.2,
+        label="1 standard deviation",
+    )
+    has_positive_values = _set_spectrum_yscale(
+        axis, [values, std_dev], style.spectrum_yscale, np
+    )
+    axis.set_xscale(style.spectrum_xscale)
+    axis.set_xlim(*(style.spectrum_xlim or (edges[0], edges[-1])))
+    if style.spectrum_ylim is not None:
+        axis.set_ylim(*style.spectrum_ylim)
+    axis.set_xlabel("Incident neutron energy (MeV)")
+    axis.set_ylabel("He-3 (n,p) reactions per source neutron per energy bin")
+    axis.set_title(
+        f"He-3 tube capture spectrum by incident neutron energy: {component_name}"
+    )
+    if not has_positive_values:
+        axis.text(
+            0.5,
+            0.5,
+            "No positive He-3 (n,p) response sampled",
             transform=axis.transAxes,
             ha="center",
             va="center",
