@@ -58,14 +58,14 @@ geometry:
     - name: detector_hdpe
       shape: cylinder
       axis: z
-      center_cm: [-20.0, 0.0, 0.0]
+      center_cm: [-25.0, 0.0, 0.0]
       radius_cm: 13.57
-      length_cm: 55.6
+      length_cm: 31.6
       material: hdpe
     - name: detector_lead
       shape: cylinder
       axis: z
-      center_cm: [-20.0, 0.0, 0.0]
+      center_cm: [-25.0, 0.0, 0.0]
       radius_cm: 1.57
       length_cm: 31.6
       material: lead
@@ -73,7 +73,7 @@ geometry:
     - name: detector_aluminium_wall
       shape: cylinder
       axis: z
-      center_cm: [-20.0, 0.0, 0.0]
+      center_cm: [-25.0, 0.0, 0.0]
       radius_cm: 1.27
       length_cm: 31.0
       material: aluminium
@@ -81,7 +81,7 @@ geometry:
     - name: detector_he3_gas
       shape: cylinder
       axis: z
-      center_cm: [-20.0, 0.0, 0.0]
+      center_cm: [-25.0, 0.0, 0.0]
       radius_cm: 1.17
       length_cm: 30.8
       material: helium3_gas
@@ -155,7 +155,7 @@ visualization:
   mesh_bins: 256
   voxel_bins: 128
   slice_thickness_cm: 0.4
-  energy_bins_mev: [0.0, 0.1, 1.0, 2.0, 8.0, 12.0, 14.0, 16.0, 20.0]
+  energy_bins_mev: [0.0, 0.1, 1.0, 2.0, 8.0, 12.0, 13.8, 14.2, 15.0, 16.0]
   marginal_x_cm: 20.0
   marginal_y_cm: 0.0
   marginal_z_cm: 0.0

@@ -233,6 +233,7 @@ def test_geometry_voxel_plot_shows_material_voxels(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
     import numpy as np
     from matplotlib.patches import Patch
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
     config = load_config(Path(__file__).parents[1] / "config" / "he3_detector.yaml")
     labels, materials, bounds = _geometry_voxel_data(config, np)
@@ -252,6 +253,7 @@ def test_geometry_voxel_plot_shows_material_voxels(tmp_path: Path) -> None:
         np,
         Patch,
         PLOT_STYLE,
+        Poly3DCollection,
     )
 
     assert path.is_file()

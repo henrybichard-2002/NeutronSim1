@@ -68,6 +68,7 @@ def plot_results(
     import matplotlib.pyplot as plt
     from matplotlib.colors import LogNorm, Normalize
     from matplotlib.patches import Circle, Patch, Rectangle, Wedge
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
     statepoint_file = Path(statepoint_path).resolve()
     if not statepoint_file.is_file():
@@ -349,6 +350,7 @@ def plot_results(
             np,
             Patch,
             PLOT_STYLE,
+            Poly3DCollection,
         )
     )
     return paths
@@ -503,30 +505,55 @@ def _plot_geometry_voxels(
     np,
     Patch,
     style: PlotStyle,
+    Poly3DCollection,
 ) -> Path:
     filled = labels >= 0
     if not np.any(filled):
         raise ValueError("The configured geometry does not intersect the voxel grid")
     palette = plt.get_cmap(style.geometry_cmap, len(category_names))
-    facecolors = palette(np.maximum(labels, 0))
-    facecolors[..., 3] = np.where(filled, 1.0, 0.0)
     edges = [
         np.linspace(lower, upper, bins + 1)
         for lower, upper in bounds
     ]
-    grid_x, grid_y, grid_z = np.meshgrid(*edges, indexing="ij")
+    faces = []
+    facecolors = []
+    corner_offsets = ((0, 0), (1, 0), (1, 1), (0, 1))
+
+    for axis_index in range(3):
+        other_axes = [index for index in range(3) if index != axis_index]
+        for positive in (False, True):
+            neighbors = np.roll(
+                filled, -1 if positive else 1, axis=axis_index
+            )
+            boundary = [slice(None)] * 3
+            boundary[axis_index] = slice(-1, None) if positive else slice(0, 1)
+            neighbors[tuple(boundary)] = False
+            voxel_indices = np.where(filled & ~neighbors)
+            if not voxel_indices[0].size:
+                continue
+
+            face_vertices = np.empty((voxel_indices[0].size, 4, 3), dtype=float)
+            face_coordinate = voxel_indices[axis_index] + int(positive)
+            face_vertices[:, :, axis_index] = edges[axis_index][
+                face_coordinate, None
+            ]
+            for corner_index, offsets in enumerate(corner_offsets):
+                for offset_index, dimension in enumerate(other_axes):
+                    face_vertices[:, corner_index, dimension] = edges[dimension][
+                        voxel_indices[dimension] + offsets[offset_index]
+                    ]
+            faces.append(face_vertices)
+            facecolors.append(palette(labels[voxel_indices]))
 
     figure = plt.figure(figsize=(11, 9), constrained_layout=True)
     axis = figure.add_subplot(111, projection="3d")
     axis.view_init(elev=25, azim=-55)
-    axis.voxels(
-        grid_x,
-        grid_y,
-        grid_z,
-        filled,
-        facecolors=facecolors,
-        edgecolor=None,
-        shade=False,
+    axis.add_collection3d(
+        Poly3DCollection(
+            np.concatenate(faces),
+            facecolors=np.concatenate(facecolors),
+            edgecolors="none",
+        )
     )
     for axis_index, (lower, upper) in enumerate(bounds):
         setter = (axis.set_xlim, axis.set_ylim, axis.set_zlim)[axis_index]
