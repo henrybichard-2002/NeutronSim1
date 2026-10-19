@@ -24,7 +24,7 @@ from iec_neutrons.visualize import plot_results
 
 
 DEFAULT_PARAMETERS = (
-    "r_anode_cm=4.05;"
+    "r_anode_cm=3.85;"
     "r_cathode_cm=0.73;"
     "half_height_cm=17.5;"
     "voltage_kev=90;"

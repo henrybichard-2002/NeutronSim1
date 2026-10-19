@@ -73,7 +73,7 @@ materials:
       - c_H_in_H2O
 
 settings:
-  particles: 10000
+  particles: 100000
   batches: 10
   inactive: 0
   seed: 12345
@@ -86,7 +86,7 @@ tally:
   energy_bin_width_mev: 0.1
 
 visualization:
-  mesh_bins: 128
+  mesh_bins: 256
   voxel_bins: 64
   slice_thickness_cm: 0.4
   energy_bins_mev: [0.0, 0.1, 1.0, 2.0, 8.0, 12.0, 14.0, 16.0, 20.0]
