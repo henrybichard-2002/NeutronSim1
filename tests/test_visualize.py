@@ -283,6 +283,7 @@ def test_he3_spectra_share_linear_and_log_plots_with_low_energy_inset(
     )
     flux = np.linspace(1.0, 2.0, len(edges) - 1)
     capture_response = np.linspace(1.0e-5, 2.0e-5, len(edges) - 1)
+    capture_response[1:-2] = 0.0
     for yscale in ("linear", "log"):
         path = _plot_he3_detector_spectrum(
             flux,
@@ -297,7 +298,8 @@ def test_he3_spectra_share_linear_and_log_plots_with_low_energy_inset(
 
         assert path.is_file()
         figure = figures[-1][0]
-        axis, capture_axis, inset, inset_capture_axis = figure.axes
+        axis, capture_axis, inset_capture_axis = figure.axes
+        inset = axis.child_axes[0]
         assert axis.get_xlabel() == "Incident neutron energy (MeV)"
         assert "Volume-averaged neutron flux" in axis.get_ylabel()
         assert "He-3 (n,p) reactions" in capture_axis.get_ylabel()

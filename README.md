@@ -215,9 +215,10 @@ two combined plots, `he3_detector_spectrum_<component>_linear.png` and
 `he3_detector_spectrum_<component>_log.png`. Each overlays the volume-averaged
 neutron spectrum in the active gas and the (n,p) capture response using
 separate y-axes, and includes a log-x inset from 1 eV to 0.1 MeV. Fine
-energy bins are tallied in this interval for both curves. The capture response
-is not a pulse-height spectrum: the model does not simulate charge collection
-or infer neutron energy from the tube's electrical signal.
+energy bins are tallied in this interval for both curves; rerun the simulation
+to add these fine-bin tallies to an older statepoint. The capture response is
+not a pulse-height spectrum: the model does not simulate charge collection or
+infer neutron energy from the tube's electrical signal.
 Reaction channels and yields are limited by the selected evaluated nuclear
 data and do not imply every conceivable reaction is present.
 

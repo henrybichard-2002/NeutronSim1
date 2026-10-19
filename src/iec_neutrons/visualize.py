@@ -1429,8 +1429,12 @@ def _plot_he3_detector_spectrum(
     )
     axis.set_xscale(style.spectrum_xscale)
     axis.set_xlim(*(style.spectrum_xlim or (edges[0], edges[-1])))
-    axis.set_yscale(yscale)
-    capture_axis.set_yscale(yscale)
+    flux_has_positive_values = _set_he3_yscale(
+        axis, yscale, neutron_flux, (1.0e-12, 1.0), np
+    )
+    capture_has_positive_values = _set_he3_yscale(
+        capture_axis, yscale, capture_response, (1.0e-12, 1.0), np
+    )
     axis.set_xlabel("Incident neutron energy (MeV)")
     axis.set_ylabel(
         "Volume-averaged neutron flux "
@@ -1453,6 +1457,26 @@ def _plot_he3_detector_spectrum(
         loc="upper left",
         fontsize="small",
     )
+    if not flux_has_positive_values:
+        axis.text(
+            0.5,
+            0.5,
+            "No positive neutron flux sampled",
+            transform=axis.transAxes,
+            ha="center",
+            va="center",
+            color=flux_color,
+        )
+    if not capture_has_positive_values:
+        capture_axis.text(
+            0.5,
+            0.45,
+            "No positive capture response sampled",
+            transform=capture_axis.transAxes,
+            ha="center",
+            va="center",
+            color=capture_color,
+        )
 
     inset = axis.inset_axes([0.48, 0.52, 0.48, 0.42])
     inset_capture_axis = inset.twinx()
@@ -1462,18 +1486,50 @@ def _plot_he3_detector_spectrum(
     )
     inset.set_xscale("log")
     inset.set_xlim(inset_min_mev, inset_max_mev)
-    inset.set_yscale(yscale)
-    inset_capture_axis.set_yscale(yscale)
+    inset_flux_has_positive_values = _set_he3_yscale(
+        inset, yscale, inset_flux, axis.get_ylim(), np
+    )
+    inset_capture_has_positive_values = _set_he3_yscale(
+        inset_capture_axis,
+        yscale,
+        inset_response,
+        capture_axis.get_ylim(),
+        np,
+    )
     inset.set_title("1 eV–0.1 MeV detail", fontsize="small")
     inset.set_xlabel("Incident energy (MeV)", fontsize="small")
     inset.tick_params(axis="both", labelsize="x-small")
     inset_capture_axis.tick_params(axis="y", labelsize="x-small")
     inset.grid(True, which="both", alpha=0.2)
+    if not inset_flux_has_positive_values:
+        inset.text(
+            0.04,
+            0.05,
+            "No neutron flux sampled",
+            transform=inset.transAxes,
+            fontsize="x-small",
+        )
+    if not inset_capture_has_positive_values:
+        inset.text(
+            0.04,
+            0.15,
+            "No capture events",
+            transform=inset.transAxes,
+            fontsize="x-small",
+        )
     axis.indicate_inset_zoom(inset, edgecolor="0.4")
 
     figure.savefig(str(path), dpi=180)
     plt.close(figure)
     return path
+
+
+def _set_he3_yscale(axis, yscale: str, values, fallback_limits, np) -> bool:
+    has_positive_values = bool(np.any(np.isfinite(values) & (values > 0)))
+    if yscale == "log" and not has_positive_values:
+        axis.set_ylim(*fallback_limits)
+    axis.set_yscale(yscale)
+    return has_positive_values
 
 
 def _set_spectrum_yscale(axis, datasets, requested_scale: str, np) -> bool:
