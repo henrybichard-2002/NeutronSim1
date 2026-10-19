@@ -102,9 +102,11 @@ OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/reactorpath1.xml" \
   "$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath1.yaml
 OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/reactorpath2.xml" \
   "$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath2.yaml
-OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/reactorpath3.xml" \
-  "$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath3.yaml
 ```
+
+`reactorpath3.yaml` has a pre-existing stray `conda` token at the end of the
+file and must be corrected before it can be loaded; its corresponding
+cross-section index is ready once that config syntax is fixed.
 
 Both commands accept `--output-dir`; by default files go to
 `runs/<config-name>/`. The energy tallies use 0.1 MeV bins from 1 to 16 MeV.
