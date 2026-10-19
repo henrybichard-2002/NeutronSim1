@@ -56,12 +56,17 @@ air using natural N/O/Ar/C elemental proportions, aluminium at 2.70 g/cm3, and
 water at 1.0 g/cm3. The selected nuclear data library must include the natural
 isotopes for H, C, N, O, Ar and Al, plus the `c_H_in_H2O` thermal-scattering
 table. The `gen_reactor` and `he3_detector.yaml` configurations also need a
-helium-3 neutron table. If the library index does not already include one, add
-an entry pointing to the installed He-3 HDF5 file:
+helium-3 neutron table. The project example index at
+`runs/example/cross_sections.xml` includes the local He-3 table entry. For a
+different cross-section index, add an entry pointing to the installed He-3
+HDF5 file (update the path if your library is in a different location):
 
 ```xml
-<library materials="He3" path="/path/to/2-He-3g-293.6.h5" type="neutron" />
+<library materials="He3" path="Npaths/JEFF40-Processed-OPENMC-HDF5/2-He-3g-293.6.h5" type="neutron" />
 ```
+
+Ensure `OPENMC_CROSS_SECTIONS` names the index you edited before running the
+`gen_reactor` configuration.
 
 The standalone `he3_detector.yaml` example also enables photon transport and
 therefore needs compatible photon interaction data.
@@ -188,12 +193,10 @@ evaluated nuclear data and do not imply every conceivable reaction is present.
 
 The He-3 example enables `physics.photon_transport` and requests photon energy
 deposition tallies. Photon transport requires compatible photon interaction
-data in the cross-section index. The locally inspected
-`runs/example/cross_sections.xml` currently has no He-3 neutron table indexed,
-although a 293.6 K He-3 file is present in the local JEFF directory. Add that
-nuclide to the `cross_sections.xml` index (and add photon interaction tables
-before enabling photon transport) before running the He-3 detector models.
-Existing reactor-path configurations leave photon transport disabled.
+data in the cross-section index. The example `cross_sections.xml` includes the 293.6 K He-3 neutron table.
+Alternate indices must include an equivalent entry (and photon interaction
+tables before enabling photon transport). Existing reactor-path
+configurations leave photon transport disabled.
 
 `visualization.voxel_bins` sets the geometry voxel resolution in each direction
 (64 × 64 × 64 by default). Plotting produces `geometry_voxels.png`, a
