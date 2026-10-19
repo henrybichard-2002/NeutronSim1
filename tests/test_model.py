@@ -64,12 +64,28 @@ def test_external_geometry_and_physics_tallies_are_constructed() -> None:
         for name in ("hdpe_moderator", "he3_tube_wall", "he3_gas")
     )
     assert "he3_n_p_spectrum_he3_gas" in tallies
+    assert "he3_neutron_spectrum_he3_gas" in tallies
     he3_response = tallies["he3_n_p_spectrum_he3_gas"]
     assert he3_response.scores == ["(n,p)"]
     assert he3_response.nuclides == ["He3"]
-    assert any(
-        isinstance(item, openmc.EnergyFilter) for item in he3_response.filters
+    response_energy_filter = next(
+        item
+        for item in he3_response.filters
+        if isinstance(item, openmc.EnergyFilter)
     )
+    neutron_spectrum = tallies["he3_neutron_spectrum_he3_gas"]
+    neutron_energy_filter = next(
+        item
+        for item in neutron_spectrum.filters
+        if isinstance(item, openmc.EnergyFilter)
+    )
+    assert response_energy_filter.bins.tolist() == neutron_energy_filter.bins.tolist()
+    he3_edges_ev = [
+        neutron_energy_filter.bins[0, 0],
+        *neutron_energy_filter.bins[:, 1],
+    ]
+    assert 1.0 in he3_edges_ev
+    assert 1.0e5 in he3_edges_ev
     assert "photon_heating_he3_gas" in tallies
     assert "voxel_flux" not in tallies
     assert "voxel_photon_heating" not in tallies

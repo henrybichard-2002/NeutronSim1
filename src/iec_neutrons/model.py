@@ -172,6 +172,14 @@ def build_model(config: SimulationConfig):
     )
 
     energy_edges_ev = [edge * 1.0e6 for edge in config.tally.energy_bins_mev]
+    he3_energy_edges_ev = [
+        0.0,
+        *(
+            10.0 ** (5.0 * index / 100.0)
+            for index in range(101)
+        ),
+        *(edge for edge in energy_edges_ev if edge > 1.0e5),
+    ]
     map_energy_edges_ev = [
         edge * 1.0e6 for edge in config.visualization.energy_bins_mev
     ]
@@ -237,11 +245,22 @@ def build_model(config: SimulationConfig):
         composition = config.materials[component.material].nuclides or {}
         if "He3" not in composition:
             continue
+        neutron_spectrum = openmc.Tally(
+            name=f"he3_neutron_spectrum_{component.name}"
+        )
+        neutron_spectrum.filters = [
+            openmc.CellFilter(component_cells[component.name]),
+            openmc.ParticleFilter("neutron"),
+            make_energy_filter(he3_energy_edges_ev),
+        ]
+        neutron_spectrum.scores = ["flux"]
+        tallies.append(neutron_spectrum)
+
         he3_response = openmc.Tally(name=f"he3_n_p_spectrum_{component.name}")
         he3_response.filters = [
             openmc.CellFilter(component_cells[component.name]),
             openmc.ParticleFilter("neutron"),
-            make_energy_filter(energy_edges_ev),
+            make_energy_filter(he3_energy_edges_ev),
         ]
         he3_response.nuclides = ["He3"]
         he3_response.scores = ["(n,p)"]
