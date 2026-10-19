@@ -55,8 +55,16 @@ to OpenMC (`c_H_in_H2O` for water). The preliminary configurations model dry
 air using natural N/O/Ar/C elemental proportions, aluminium at 2.70 g/cm3, and
 water at 1.0 g/cm3. The selected nuclear data library must include the natural
 isotopes for H, C, N, O, Ar and Al, plus the `c_H_in_H2O` thermal-scattering
-table. `config/he3_detector.yaml` also needs a helium-3 neutron table and
-compatible photon interaction data.
+table. The `gen_reactor` and `he3_detector.yaml` configurations also need a
+helium-3 neutron table. If the library index does not already include one, add
+an entry pointing to the installed He-3 HDF5 file:
+
+```xml
+<library materials="He3" path="/path/to/2-He-3g-293.6.h5" type="neutron" />
+```
+
+The standalone `he3_detector.yaml` example also enables photon transport and
+therefore needs compatible photon interaction data.
 
 Build OpenMC XML inputs without starting a simulation:
 
@@ -153,10 +161,14 @@ low-value outliers from compressing the displayed color range.
 `geometry.components` configures finite components beyond or within the radial
 layers. Supported shapes are axis-aligned boxes (`size_cm: [x, y, z]`) and
 cylinders (`radius_cm`, `length_cm`, and `axis: x|y|z`), each located by
-`center_cm: [x, y, z]`. The listed order defines overlap priority: later
-components carve their volume out of earlier components, while the radial
-layers take precedence over all components. Components and the detector scoring
-volume must fit inside the spherical world boundary.
+`center_cm: [x, y, z]`. Components carve their volume out of the reactor
+materials by default. For nested assemblies, set `carve_from_base: false` on
+inner components that are fully contained inside an outer component which
+already carves the reactor material. This keeps redundant internal surfaces
+out of every reactor cell while the component cells still replace one another
+in list order, with later components taking priority over earlier ones.
+Components and the detector scoring volume must fit inside the spherical world
+boundary.
 
 The provisional [`config/he3_detector.yaml`](config/he3_detector.yaml) models
 reactor path 2 with an external assembly centered 30 cm from the source along
@@ -177,10 +189,11 @@ evaluated nuclear data and do not imply every conceivable reaction is present.
 The He-3 example enables `physics.photon_transport` and requests photon energy
 deposition tallies. Photon transport requires compatible photon interaction
 data in the cross-section index. The locally inspected
-`runs/example/cross_sections.xml` currently has neither photon interaction
-tables nor a He-3 neutron table, so the example can be built but cannot be run
-until those libraries are added and indexed. Existing reactor-path configurations
-leave photon transport disabled.
+`runs/example/cross_sections.xml` currently has no He-3 neutron table indexed,
+although a 293.6 K He-3 file is present in the local JEFF directory. Add that
+nuclide to the `cross_sections.xml` index (and add photon interaction tables
+before enabling photon transport) before running the He-3 detector models.
+Existing reactor-path configurations leave photon transport disabled.
 
 `visualization.voxel_bins` sets the geometry voxel resolution in each direction
 (64 × 64 × 64 by default). Plotting produces `geometry_voxels.png`, a
@@ -191,6 +204,20 @@ Voxelization is a visualization approximation: features thinner than a voxel
 may be omitted or assigned to an adjacent material. Rendering cost grows
 cubically with this setting, so increase it gradually. XY and XZ transport
 maps remain separate central-plane views.
+
+The `gen_reactor` voxel image removes the +x/−y quarter of the geometry and
+views the model from that side, exposing the cylindrical layers, reactor end
+caps, and the separate detector assembly. The detector is centered at
+x = −20 cm. Its outside dimensions are 25.4 mm diameter × 310 mm tall, with a
+1 mm aluminium wall and end caps enclosing a 23.4 mm diameter × 308 mm He-3
+gas volume. A 3 mm lead layer and 12 cm HDPE layer surround the detector; both
+extend axially by their respective thicknesses at each end. The He-3 density is
+the ideal-gas value
+for 4 bar absolute at 50 °C. The configured 1300 V bias and nominal
+50 cps/(n/cm²/s) calibration are detector metadata only; OpenMC reports the
+energy-binned He-3 (n,p) response tally and does not model charge collection or
+apply that calibration. The two 38 mm radius × 14 mm thick aluminium end caps
+are centered immediately above and below the 70 cm cavity.
 
 ## Compiled IEC fusion source
 

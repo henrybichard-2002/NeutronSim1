@@ -484,10 +484,12 @@ def _geometry_voxel_data(config: SimulationConfig, np):
 
     for index, component in enumerate(config.geometry.components):
         later_components = component_masks[index + 1 :]
-        mask = component_masks[index] & ~previous_region & within_world
+        mask = component_masks[index] & within_world
         if later_components:
             mask &= ~np.logical_or.reduce(later_components)
         labels[mask] = category_ids[component.material]
+    cutaway = (x > 0.0) & (y < 0.0)
+    labels[cutaway] = -1
     return labels, category_names, tuple(tuple(axis) for axis in bounds)
 
 
@@ -516,6 +518,7 @@ def _plot_geometry_voxels(
 
     figure = plt.figure(figsize=(11, 9), constrained_layout=True)
     axis = figure.add_subplot(111, projection="3d")
+    axis.view_init(elev=25, azim=-55)
     axis.voxels(
         grid_x,
         grid_y,
@@ -532,7 +535,10 @@ def _plot_geometry_voxels(
     axis.set_xlabel("x (cm)")
     axis.set_ylabel("y (cm)")
     axis.set_zlabel("z (cm)")
-    axis.set_title(f"3D voxel geometry ({bins} × {bins} × {bins} voxels)")
+    axis.set_title(
+        f"3D voxel geometry with quarter cutaway "
+        f"({bins} × {bins} × {bins} voxels)"
+    )
     axis.legend(
         handles=[
             Patch(facecolor=palette(index), edgecolor="black", label=name)

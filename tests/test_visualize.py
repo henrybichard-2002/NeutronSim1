@@ -255,3 +255,24 @@ def test_geometry_voxel_plot_shows_material_voxels(tmp_path: Path) -> None:
     )
 
     assert path.is_file()
+
+
+def test_gen_reactor_voxel_geometry_has_cutaway_and_components() -> None:
+    pytest.importorskip("matplotlib")
+    import numpy as np
+
+    config = load_config(Path(__file__).parents[1] / "config" / "gen_reactor.yaml")
+    labels, materials, bounds = _geometry_voxel_data(config, np)
+    bins = config.visualization.voxel_bins
+    x = np.linspace(bounds[0][0], bounds[0][1], bins, endpoint=False)
+    x += (bounds[0][1] - bounds[0][0]) / (2 * bins)
+    y = np.linspace(bounds[1][0], bounds[1][1], bins, endpoint=False)
+    y += (bounds[1][1] - bounds[1][0]) / (2 * bins)
+    cutaway = (x[:, None] > 0) & (y[None, :] < 0)
+
+    assert np.all(labels[cutaway, :] == -1)
+    assert {"air", "aluminium", "water", "hdpe", "lead", "helium3_gas"} <= set(materials)
+    material_ids = {name: index for index, name in enumerate(materials)}
+    assert np.any(labels == material_ids["hdpe"])
+    assert np.any(labels == material_ids["lead"])
+    assert np.any(labels == material_ids["helium3_gas"])

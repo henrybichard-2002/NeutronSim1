@@ -38,6 +38,7 @@ class ComponentConfig:
     dimensions_cm: tuple[float, ...]
     material: str
     axis: str | None = None
+    carve_from_base: bool = True
 
 
 @dataclass(frozen=True)
@@ -270,12 +271,15 @@ def load_config(path: str | Path) -> SimulationConfig:
         _keys(
             component_data,
             {"name", "shape", "center_cm", "material"},
-            {"size_cm", "radius_cm", "length_cm", "axis"},
+            {"size_cm", "radius_cm", "length_cm", "axis", "carve_from_base"},
             component_path,
         )
         name = component_data["name"]
         shape = component_data["shape"]
         material = component_data["material"]
+        carve_from_base = component_data.get("carve_from_base", True)
+        if not isinstance(carve_from_base, bool):
+            raise ConfigError(f"{component_path}.carve_from_base must be a boolean")
         if not isinstance(name, str) or not name.strip():
             raise ConfigError(f"{component_path}.name must be a non-empty string")
         if name in names:
@@ -296,7 +300,7 @@ def load_config(path: str | Path) -> SimulationConfig:
             _keys(
                 component_data,
                 {"name", "shape", "center_cm", "material", "size_cm"},
-                set(),
+                {"carve_from_base"},
                 component_path,
             )
             size_data = component_data["size_cm"]
@@ -312,7 +316,7 @@ def load_config(path: str | Path) -> SimulationConfig:
             _keys(
                 component_data,
                 {"name", "shape", "center_cm", "material", "radius_cm", "length_cm"},
-                {"axis"},
+                {"axis", "carve_from_base"},
                 component_path,
             )
             axis = component_data.get("axis", "z")
@@ -339,7 +343,9 @@ def load_config(path: str | Path) -> SimulationConfig:
         ) >= world_radius:
             raise ConfigError(f"{component_path} must fit inside geometry.world_radius_cm")
         components.append(
-            ComponentConfig(name, shape, center, dimensions, material, axis)
+            ComponentConfig(
+                name, shape, center, dimensions, material, axis, carve_from_base
+            )
         )
         names.add(name)
 

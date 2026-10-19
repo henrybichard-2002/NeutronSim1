@@ -145,6 +145,25 @@ def print_run_summary(
                 continue
             print(f"    {particle}: {value:.6g}", file=file)
 
+        for component in config.geometry.components:
+            nuclides = config.materials[component.material].nuclides or {}
+            if "He3" not in nuclides:
+                continue
+            response = statepoint.get_tally(
+                name=f"he3_n_p_spectrum_{component.name}"
+            )
+            reaction_yield = sum(_means(response, "(n,p)"))
+            print(
+                f"\n  He-3 detector {component.name}: "
+                f"(n,p) response={reaction_yield:.6g} reactions/source history",
+                file=file,
+            )
+            print(
+                "    This transport response does not model the 1300 V charge "
+                "collection or apply the nominal 50 cps/(n/cm^2/s) calibration.",
+                file=file,
+            )
+
         interaction_scores = (
             "total",
             "scatter",
