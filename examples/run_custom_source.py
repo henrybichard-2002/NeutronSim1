@@ -18,7 +18,7 @@ except ImportError as exc:
 
 from iec_neutrons.compiled_source import compile_custom_source
 from iec_neutrons.config import load_config
-from iec_neutrons.diagnostics import print_run_summary
+from iec_neutrons.diagnostics import export_he3_spectra_csv, print_run_summary
 from iec_neutrons.model import build_model
 from iec_neutrons.visualize import plot_results
 
@@ -121,6 +121,11 @@ def main() -> int:
     statepoint = model.run(cwd=str(output_dir))
     print(f"OpenMC run complete; statepoint written to {statepoint}")
     print_run_summary(statepoint, config)
+    csv_path = export_he3_spectra_csv(
+        statepoint, config, output_dir / "he3_detector_spectra.csv"
+    )
+    if csv_path is not None:
+        print(f"He-3 detector spectra written to {csv_path}")
     if args.plot:
         plot_paths = plot_results(
             config, statepoint, output_dir / "plots"

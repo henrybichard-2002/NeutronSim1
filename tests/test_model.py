@@ -122,20 +122,54 @@ def test_gen_reactor_geometry_and_custom_source_zones() -> None:
     assert config.geometry.layers[-1].radius_cm == pytest.approx(57.0)
     assert config.geometry.world_radius_cm == 80.0
     components = {item.name: item for item in config.geometry.components}
-    assert components["detector_hdpe"].carve_from_base
-    assert not components["detector_lead"].carve_from_base
-    assert not components["detector_aluminium_wall"].carve_from_base
-    assert not components["detector_he3_gas"].carve_from_base
+    assert components["detector_12cm_hdpe"].carve_from_base
+    assert not components["detector_12cm_lead"].carve_from_base
+    assert not components["detector_12cm_aluminium_wall"].carve_from_base
+    assert not components["detector_12cm_he3_gas"].carve_from_base
     assert components["aluminium_cap_top"].carve_from_base
-    assert components["detector_he3_gas"].center_cm == (-20.0, 0.0, 0.0)
-    assert components["detector_aluminium_wall"].dimensions_cm == pytest.approx(
+    assert components["detector_12cm_he3_gas"].center_cm == (-25.0, 0.0, 0.0)
+    assert components["detector_12cm_aluminium_wall"].dimensions_cm == pytest.approx(
         (1.27, 31.0)
     )
-    assert components["detector_he3_gas"].dimensions_cm == pytest.approx(
+    assert components["detector_12cm_he3_gas"].dimensions_cm == pytest.approx(
         (1.17, 30.8)
     )
-    assert components["detector_lead"].dimensions_cm == pytest.approx((1.57, 31.6))
-    assert components["detector_hdpe"].dimensions_cm == pytest.approx((13.57, 55.6))
+    assert components["detector_12cm_lead"].dimensions_cm == pytest.approx((1.57, 31.6))
+    assert components["detector_12cm_hdpe"].dimensions_cm == pytest.approx((13.57, 31.6))
+    detector_shields = {
+        10: ("detector_10cm", (25.0, 0.0, 0.0)),
+        11: ("detector_11cm", (0.0, 25.0, 0.0)),
+        12: ("detector_12cm", (-25.0, 0.0, 0.0)),
+        13: ("detector_13cm", (0.0, -25.0, 0.0)),
+    }
+    for thickness_cm, (prefix, center) in detector_shields.items():
+        assert components[f"{prefix}_hdpe"].center_cm == center
+        assert components[f"{prefix}_hdpe"].dimensions_cm == pytest.approx(
+            (1.57 + thickness_cm, 31.6)
+        )
+        assert components[f"{prefix}_lead"].dimensions_cm == pytest.approx(
+            (1.57, 31.6)
+        )
+        assert components[f"{prefix}_aluminium_wall"].dimensions_cm == pytest.approx(
+            (1.27, 31.0)
+        )
+        assert components[f"{prefix}_he3_gas"].center_cm == center
+        assert components[f"{prefix}_he3_gas"].dimensions_cm == pytest.approx(
+            (1.17, 30.8)
+        )
+        assert not components[f"{prefix}_lead"].carve_from_base
+        assert not components[f"{prefix}_aluminium_wall"].carve_from_base
+        assert not components[f"{prefix}_he3_gas"].carve_from_base
+        assert f"he3_neutron_spectrum_{prefix}_he3_gas" in {
+            tally.name for tally in model.tallies
+        }
+        assert f"he3_n_p_spectrum_{prefix}_he3_gas" in {
+            tally.name for tally in model.tallies
+        }
+    assert components["detector_12cm_he3_gas"].center_cm == (-25.0, 0.0, 0.0)
+    assert components["detector_10cm_he3_gas"].center_cm == (25.0, 0.0, 0.0)
+    assert components["detector_11cm_he3_gas"].center_cm == (0.0, 25.0, 0.0)
+    assert components["detector_13cm_he3_gas"].center_cm == (0.0, -25.0, 0.0)
     assert components["aluminium_cap_top"].center_cm == (0.0, 0.0, 35.7)
     assert components["aluminium_cap_bottom"].center_cm == (0.0, 0.0, -35.7)
     assert config.custom_source is not None
@@ -165,14 +199,35 @@ def test_world_neutron_leakage_spectrum_uses_outward_surface_current() -> None:
     assert any(isinstance(item, openmc.SurfaceFilter) for item in leakage.filters)
     assert any(isinstance(item, openmc.EnergyFilter) for item in leakage.filters)
     assert any(isinstance(item, openmc.ParticleFilter) for item in leakage.filters)
-    assert "he3_n_p_spectrum_detector_he3_gas" in tallies
+    for component_name in (
+        "detector_12cm_he3_gas",
+        "detector_10cm_he3_gas",
+        "detector_11cm_he3_gas",
+        "detector_13cm_he3_gas",
+    ):
+        assert f"he3_n_p_spectrum_{component_name}" in tallies
+        assert f"he3_neutron_spectrum_{component_name}" in tallies
 
     for position, expected_cell in (
-        ((-20.0, 0.0, 0.0), "detector_he3_gas"),
-        ((-20.0, 1.22, 0.0), "detector_aluminium_wall"),
-        ((-20.0, 1.4, 0.0), "detector_lead"),
-        ((-20.0, 13.0, 0.0), "detector_hdpe"),
         ((0.0, 0.0, 35.5), "aluminium_cap_top"),
         ((0.0, 0.0, -35.5), "aluminium_cap_bottom"),
     ):
         assert model.geometry.find(position)[-1].name == expected_cell
+    for prefix, center, direction in (
+        ("detector_10cm", (25.0, 0.0), (1.0, 0.0)),
+        ("detector_11cm", (0.0, 25.0), (0.0, 1.0)),
+        ("detector_12cm", (-25.0, 0.0), (-1.0, 0.0)),
+        ("detector_13cm", (0.0, -25.0), (0.0, -1.0)),
+    ):
+        for distance, suffix in (
+            (0.0, "he3_gas"),
+            (1.22, "aluminium_wall"),
+            (1.4, "lead"),
+            (2.0, "hdpe"),
+        ):
+            position = (
+                center[0] + direction[0] * distance,
+                center[1] + direction[1] * distance,
+                0.0,
+            )
+            assert model.geometry.find(position)[-1].name == f"{prefix}_{suffix}"

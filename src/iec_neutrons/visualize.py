@@ -37,7 +37,7 @@ class PlotStyle:
     spatial_clim: tuple[float, float] | None = None
     energy_clim: tuple[float, float] | None = None
     uncertainty_clim: tuple[float, float] | None = None
-    spectrum_xlim: tuple[float, float] | None = None
+    spectrum_xlim: tuple[0.1, 20.0] | None = None
     spectrum_ylim: tuple[float, float] | None = None
     marginal_ylim: tuple[float, float] | None = None
 

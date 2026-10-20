@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import math
 from pathlib import Path
 import sys
 from typing import TextIO
@@ -54,6 +56,159 @@ def _net_scatter_energy_change(tally, openmc) -> float:
         for in_index, incoming in enumerate(incoming_bins)
         for out_index, outgoing in enumerate(outgoing_bins)
     )
+
+
+def export_he3_spectra_csv(
+    statepoint_path: str | Path,
+    config: SimulationConfig,
+    output_path: str | Path,
+) -> Path | None:
+    """Write all configured He-3 neutron spectra and capture responses to CSV."""
+    detector_components = [
+        component
+        for component in config.geometry.components
+        if "He3" in (config.materials[component.material].nuclides or {})
+    ]
+    if not detector_components:
+        return None
+
+    try:
+        import numpy as np
+        import openmc
+    except ImportError as exc:
+        raise RuntimeError(
+            "OpenMC and NumPy are required to export He-3 spectra"
+        ) from exc
+
+    destination = Path(output_path).resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = (
+        "detector",
+        "energy_min_mev",
+        "energy_max_mev",
+        "energy_midpoint_mev",
+        "neutron_flux_mean_cm-2_source-1_MeV-1",
+        "neutron_flux_std_dev_cm-2_source-1_MeV-1",
+        "he3_np_capture_mean_reactions_source-1_MeV-1",
+        "he3_np_capture_std_dev_reactions_source-1_MeV-1",
+    )
+
+    with openmc.StatePoint(str(statepoint_path)) as statepoint:
+        rows = []
+        available_names = {
+            tally.name for tally in statepoint.tallies.values()
+        }
+        for component in detector_components:
+            tally_names = (
+                f"he3_neutron_spectrum_{component.name}",
+                f"he3_n_p_spectrum_{component.name}",
+            )
+            missing = set(tally_names) - available_names
+            if missing:
+                raise ValueError(
+                    f"Statepoint is missing He-3 spectrum tallies for "
+                    f"{component.name!r}: {', '.join(sorted(missing))}. "
+                    "Rerun with the current model."
+                )
+            neutron_tally = statepoint.get_tally(
+                name=tally_names[0]
+            )
+            response_tally = statepoint.get_tally(name=tally_names[1])
+            neutron_filter = next(
+                (
+                    item
+                    for item in neutron_tally.filters
+                    if isinstance(item, openmc.EnergyFilter)
+                ),
+                None,
+            )
+            response_filter = next(
+                (
+                    item
+                    for item in response_tally.filters
+                    if isinstance(item, openmc.EnergyFilter)
+                ),
+                None,
+            )
+            if neutron_filter is None or response_filter is None:
+                raise ValueError(
+                    f"He-3 spectra for {component.name!r} must have energy filters"
+                )
+            neutron_bins = np.asarray(neutron_filter.bins, dtype=float)
+            response_bins = np.asarray(response_filter.bins, dtype=float)
+            if (
+                neutron_bins.ndim != 2
+                or neutron_bins.shape[1] != 2
+                or response_bins.ndim != 2
+                or response_bins.shape[1] != 2
+                or not np.allclose(neutron_bins, response_bins)
+            ):
+                raise ValueError(
+                    f"He-3 neutron and capture spectra for {component.name!r} "
+                    "must have matching energy bins"
+                )
+
+            neutron_mean = np.asarray(
+                neutron_tally.get_values(scores=["flux"], value="mean"),
+                dtype=float,
+            ).reshape(-1)
+            neutron_std_dev = np.asarray(
+                neutron_tally.get_values(scores=["flux"], value="std_dev"),
+                dtype=float,
+            ).reshape(-1)
+            response_mean = np.asarray(
+                response_tally.get_values(scores=["(n,p)"], value="mean"),
+                dtype=float,
+            ).reshape(-1)
+            response_std_dev = np.asarray(
+                response_tally.get_values(scores=["(n,p)"], value="std_dev"),
+                dtype=float,
+            ).reshape(-1)
+            bin_count = neutron_bins.shape[0]
+            if any(
+                values.size != bin_count
+                for values in (
+                    neutron_mean,
+                    neutron_std_dev,
+                    response_mean,
+                    response_std_dev,
+                )
+            ):
+                raise ValueError(
+                    f"He-3 spectra for {component.name!r} have an unexpected "
+                    "number of energy bins"
+                )
+
+            if component.shape == "box":
+                volume_cm3 = math.prod(component.dimensions_cm)
+            else:
+                radius_cm, length_cm = component.dimensions_cm
+                volume_cm3 = math.pi * radius_cm**2 * length_cm
+            energy_bins_mev = neutron_bins / 1.0e6
+            for index, (lower, upper) in enumerate(energy_bins_mev):
+                bin_width = float(upper - lower)
+                rows.append(
+                    {
+                        "detector": component.name,
+                        "energy_min_mev": float(lower),
+                        "energy_max_mev": float(upper),
+                        "energy_midpoint_mev": float((lower + upper) / 2),
+                        fieldnames[4]: float(neutron_mean[index])
+                        / volume_cm3
+                        / bin_width,
+                        fieldnames[5]: float(neutron_std_dev[index])
+                        / volume_cm3
+                        / bin_width,
+                        fieldnames[6]: float(response_mean[index]) / bin_width,
+                        fieldnames[7]: float(response_std_dev[index]) / bin_width,
+                    }
+                )
+
+    with destination.open("w", encoding="utf-8", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return destination
 
 
 def print_run_summary(

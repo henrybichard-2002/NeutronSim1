@@ -241,13 +241,15 @@ maps remain separate central-plane views.
 
 The `gen_reactor` voxel image removes the +x/−y quarter of the geometry and
 views the model from that side, exposing the cylindrical layers, reactor end
-caps, and the separate detector assembly. The detector is centered at
-x = −20 cm. Its outside dimensions are 25.4 mm diameter × 310 mm tall, with a
-1 mm aluminium wall and end caps enclosing a 23.4 mm diameter × 308 mm He-3
-gas volume. A 3 mm lead layer and 12 cm HDPE layer surround the detector; both
-extend axially by their respective thicknesses at each end. The He-3 density is
-the ideal-gas value
-for 4 bar absolute at 50 °C. The configured 1300 V bias and nominal
+caps, and detector assemblies. Four vertical detectors are centered 25 cm from
+the reactor axis at +x, +y, −x, and −y, in that order. Each has an outside
+diameter of 25.4 mm and an active height of 310 mm, with a 1 mm aluminium wall
+and end caps enclosing a 23.4 mm diameter × 308 mm He-3 gas volume. Each is
+surrounded by 3 mm of lead and by an HDPE cylinder whose thickness is 10, 11,
+12, or 13 cm respectively; the lead and HDPE cylinders have the same 31.6 cm
+height as the detector assembly, so the shielding thicknesses are radial. The
+He-3 density is the ideal-gas value for 4 bar absolute at 50 °C. The configured
+1300 V bias and nominal
 50 cps/(n/cm²/s) calibration are detector metadata only; OpenMC reports the
 energy-binned He-3 (n,p) response tally and does not model charge collection or
 apply that calibration. The two 38 mm radius × 14 mm thick aluminium end caps
@@ -297,6 +299,14 @@ histories; it is not by itself a complete neutron conservation balance because
 absorption and secondary production must also be considered. The report's
 interaction scores, energy transfer, and secondary production help inspect
 those processes.
+
+Runs create `he3_detector_spectra.csv` in the run output directory when the
+configuration includes He-3 gas. It contains one row per energy bin and
+detector, with bin bounds, volume-averaged neutron flux, He-3 (n,p) capture
+response, and their tally standard deviations. Values are source-normalized
+per MeV; neutron flux is additionally divided by the active He-3 volume. When
+plotting an existing statepoint with `iec-neutrons plot`, the CSV is written
+beside the plots.
 
 The runner compiles [`custom_source.cpp`](src/iec_neutrons/custom_source.cpp)
 against the active environment's OpenMC headers and `libopenmc.so`, substitutes
