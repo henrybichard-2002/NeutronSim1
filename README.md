@@ -126,14 +126,15 @@ Plot either kind of run with the same command, using the YAML configuration
 and the exact statepoint path printed by the run:
 
 ```sh
+CONFIG=config/gen_reactor.yaml
 STATEPOINT=runs/gen_reactor-custom-source/statepoint.10.h5
 "$OPENMC_ENV/bin/python" -m iec_neutrons.cli plot \
   "$CONFIG" "$STATEPOINT"
 ```
 
-The `STATEPOINT` value is an example: replace it with the exact path printed
-by OpenMC. For a standard run, use that run's statepoint path. Batch numbers
-depend on the configuration.
+Set `CONFIG` to the same YAML used for the run. The `STATEPOINT` value is an
+example: replace it with the exact path printed by OpenMC. For a standard run,
+use that run's statepoint path. Batch numbers depend on the configuration.
 Plots go to `<statepoint-directory>/plots/` by default. The plot command also
 writes `he3_detector_spectra.csv` there when the configuration contains He-3
 detectors. To change the plot directory, pass `--output-dir`.
