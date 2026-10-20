@@ -25,6 +25,7 @@ environment used in this setup, set these variables once per terminal:
 
 ```sh
 export OPENMC_ENV=/home/Romulus1/miniforge3/envs/neutrons-openmc
+export PATH="$OPENMC_ENV/bin:$PATH"
 export PYTHONPATH="$PWD/src"
 "$OPENMC_ENV/bin/python" -m pip install -e ".[plot,test]"
 ```
@@ -49,14 +50,11 @@ neutron nuclides and thermal-scattering tables used by that configuration:
 | `he3_detector.yaml` | `config/cross_sections/he3_detector.xml` |
 | `gen_reactor.yaml` | `config/cross_sections/gen_reactor.xml` |
 
-Before a run, set `OPENMC_CROSS_SECTIONS` to the index for that config. For
-example:
+Each index has the same basename as its YAML configuration. Set
+`OPENMC_CROSS_SECTIONS` to the matching index before each run, for example:
 
 ```sh
-OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/reactorpath1.xml" \
-  "$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath1.yaml
-OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/gen_reactor.xml" \
-  "$OPENMC_ENV/bin/python" examples/run_custom_source.py config/gen_reactor.yaml
+export OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/reactorpath1.xml"
 ```
 
 The index files use the local data directory
@@ -67,16 +65,15 @@ libraries as well as the listed neutron and thermal data. Photon libraries
 were not present in the local data index used to create these files, so add
 photon entries from your photon library before running that configuration.
 
-## Configure and run
+## Configuration basics
 
 The three preliminary paths are configured in
 [`config/reactorpath1.yaml`](config/reactorpath1.yaml),
 [`config/reactorpath2.yaml`](config/reactorpath2.yaml), and
-[`config/reactorpath3.yaml`](config/reactorpath3.yaml). Each uses the same
-uniform-volume, monoenergetic cylindrical source: 1 cm diameter, 35 cm tall,
-14.1 MeV. Layers are listed from the source outward as radial cylindrical
-shells; `thickness_mm` is the thickness of each shell. In these three configs
-every layer is 60 cm tall.
+[`config/reactorpath3.yaml`](config/reactorpath3.yaml). Layers are listed from
+the source outward as radial cylindrical shells; `thickness_mm` is the
+thickness of each shell. Each YAML file defines its own source, layer heights,
+energy bins, and run settings.
 
 Materials specify either element atom ratios or nuclide atom ratios, along
 with a density in g/cm3. Optional thermal-scattering table names are passed
@@ -85,91 +82,100 @@ specific indexes above include the corresponding natural-isotope neutron
 tables and thermal-scattering tables, including He-3 for the two detector
 configurations.
 
-The standalone `he3_detector.yaml` example also enables photon transport and
-therefore needs compatible photon interaction data.
-
 Build OpenMC XML inputs without starting a simulation:
 
 ```sh
 "$OPENMC_ENV/bin/python" -m iec_neutrons.cli build config/reactorpath1.yaml
 ```
 
-Run any one path (each preliminary configuration is set to 100,000 particles
-per batch and 10 batches):
+## Run and plot a simulation
+
+The workflow is the same for every configuration: choose its YAML file, use
+the cross-section index with the same basename, run it, then plot the
+statepoint path printed by the run. Keep `OPENMC_ENV` and `PYTHONPATH` set as
+shown in [Install](#install).
+
+For example, to run the standard cylindrical source:
 
 ```sh
-OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/reactorpath1.xml" \
-  "$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath1.yaml
-OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/reactorpath2.xml" \
-  "$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/reactorpath2.yaml
+CONFIG=config/reactorpath1.yaml
+CONFIG_STEM="$(basename "$CONFIG" .yaml)"
+export OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/${CONFIG_STEM}.xml"
+"$OPENMC_ENV/bin/python" -m iec_neutrons.cli run "$CONFIG"
 ```
 
-`reactorpath3.yaml` has a pre-existing stray `conda` token at the end of the
-file and must be corrected before it can be loaded; its corresponding
-cross-section index is ready once that config syntax is fixed.
+For the configured D-T/D-D compiled source, use the custom-source runner. The
+`gen_reactor.yaml` configuration includes its source parameters:
 
-Both commands accept `--output-dir`; by default files go to
-`runs/<config-name>/`. The energy tallies use 0.1 MeV bins from 1 to 16 MeV.
-The spatial map tallies use a separate, coarser set of energy groups to keep
-plot panels manageable. XY and XZ maps are central-plane slab averages; the
-slab thickness is set by `visualization.slice_thickness_cm` (0.4 cm by default).
+```sh
+CONFIG=config/gen_reactor.yaml
+CONFIG_STEM="$(basename "$CONFIG" .yaml)"
+export OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/${CONFIG_STEM}.xml"
+"$OPENMC_ENV/bin/python" examples/run_custom_source.py "$CONFIG"
+```
+
+The standard runner always uses the YAML `source` block. The custom-source
+runner uses the YAML `custom_source` block when present; otherwise it uses its
+documented defaults, which can be overridden with `--parameters`.
+The standard runner is `iec_neutrons.cli run`; the compiled-source runner is
+`examples/run_custom_source.py`. Both print the statepoint path and support
+`--output-dir`. Standard runs default to `runs/<config-name>/`; compiled-source
+runs default to `runs/<config-name>-custom-source/`.
+
+Plot either kind of run with the same command, using the YAML configuration
+and the exact statepoint path printed by the run:
+
+```sh
+STATEPOINT=runs/gen_reactor-custom-source/statepoint.10.h5
+"$OPENMC_ENV/bin/python" -m iec_neutrons.cli plot \
+  "$CONFIG" "$STATEPOINT"
+```
+
+The `STATEPOINT` value is an example: replace it with the exact path printed
+by OpenMC. For a standard run, use that run's statepoint path. Batch numbers
+depend on the configuration.
+Plots go to `<statepoint-directory>/plots/` by default. The plot command also
+writes `he3_detector_spectra.csv` there when the configuration contains He-3
+detectors. To change the plot directory, pass `--output-dir`.
+
+The run itself writes a statepoint HDF5 file and, for He-3 configurations,
+`he3_detector_spectra.csv` in the run output directory. Use the same
+configuration used for the run when plotting. The statepoint must contain the
+tallies expected by the current plotter; if it does not, rerun with the
+current model before plotting.
+
+Both run commands accept `--output-dir`. Energy bins and spatial resolution
+are set by each YAML file. XY and XZ maps are central-plane slab averages; the
+slab thickness is `visualization.slice_thickness_cm` (0.4 cm by default), and
 `visualization.mesh_bins` controls spatial resolution. The source-flux spectrum
 is tallied in the configured cylindrical source volume; the remaining source
-cavity is tallied separately. XY/XZ flux maps and the detector spectrum divide
-OpenMC's track-length tallies by the exact mesh-cell volume to report scalar
-flux in cm-2 per source neutron. Region spectra are integrated track-length
-tallies in cm per source neutron, so their raw values should not be compared
-across regions of different volumes.
+cavity is tallied separately. XY/XZ flux maps divide track-length tallies by
+the exact mesh-cell volume to report scalar flux in cm-2 per source neutron.
+Region spectra are integrated track-length tallies in cm per source neutron,
+so raw values should not be compared across regions of different volumes.
 
 OpenMC tallies are normalized per source particle; multiply them by the
 physical neutron emission rate when a source-rate-normalized result is needed.
 The run creates a statepoint HDF5 file, which can be analyzed with OpenMC's
 Python API.
 
-Each config includes a 0.4 × 0.4 cm detector face and 500 µm thickness. Change
-`detector.x_cm`, `detector.y_cm`, and `detector.z_cm` to position it, then
-rerun the simulation. The detector energy plot is the volume-averaged neutron
-flux spectrum in that box (not a detector-response/count-rate simulation).
-Detector dimensions can be changed with `width_x_cm`, `width_y_cm`, and
-`thickness_z_cm`.
+Each config may also define a rectangular detector scoring volume (0.4 × 0.4 cm
+by 500 µm by default). Change `detector.x_cm`, `detector.y_cm`, and
+`detector.z_cm` to position it, or set `width_x_cm`, `width_y_cm`, and
+`thickness_z_cm` to change its dimensions. This tally reports volume-averaged
+neutron flux, not detector response or count rate.
 
-Plot the results from the statepoint using the same OpenMC Python environment:
-
-```sh
-"$OPENMC_ENV/bin/python" -m iec_neutrons.cli plot config/reactorpath1.yaml \
-  runs/reactorpath1/statepoint.10.h5
-```
-
-Plots are written to `runs/reactorpath1/plots/` by default. The output contains
-labelled top-down and side-on geometry figures, spatial total-flux and
-energy-group maps, relative-uncertainty maps, x/y/z line profiles at the
-configured `visualization.marginal_*_cm` positions, region spectra, and the
-0.1 MeV detector spectrum. The spatial meshes and geometry plots extend across
-the full configured world radius in each plotted direction, including the
-vacuum region; only total-flux heatmaps include dotted, numerically labelled
-contour lines, and spatial heatmaps show a magenta detector marker. Geometry
-figures also show configured component materials and the detector location.
-Line profiles use the nearest mesh-bin center to
-the requested coordinate and span the world radius. Plotting checks that the
-statepoint mesh fits within the configured world, energy bins match, and any
-detector tally matches the supplied config.
-Matplotlib is required; install it into the OpenMC environment with the
-`.[plot]` extra shown above. Run the plot command with that environment's
-Python (rather than a `iec-neutrons` executable that might belong to `.venv`).
-
-The source-volume flux spectrum and detector spectrum require statepoints
-generated with the current model tallies. Older statepoints remain plottable
-when they contain the map and region tallies: the old source-cavity curve is
-labelled as including the source, the detector position is still marked from
-the config, and the unavailable detector spectrum is skipped with a warning.
-Rerun the simulation to obtain the separated source spectrum and detector
-spectrum:
-
-```sh
-"$OPENMC_ENV/bin/python" -m iec_neutrons.cli run config/example.yaml
-"$OPENMC_ENV/bin/python" -m iec_neutrons.cli \
-  plot config/example.yaml runs/example/statepoint.10.h5
-```
+Plots are written to `<statepoint-directory>/plots/` by default. They include
+top-down and side-on geometry figures, spatial total-flux and energy-group
+maps, relative-uncertainty maps, line profiles at the configured
+`visualization.marginal_*_cm` positions, region spectra, and the configured
+detector spectra. He-3 configurations additionally produce combined flux and
+capture-response plots. Spatial maps span the configured world radius,
+including vacuum; total-flux heatmaps include dotted, numerically labelled
+contours. Geometry figures show configured materials and components. Line
+profiles use the nearest mesh-bin center to the requested coordinate.
+Matplotlib must be installed in the same OpenMC environment; the `.[plot]`
+extra above installs it.
 
 Plot appearance is controlled in the `PLOT_STYLE` block near the top of
 `src/iec_neutrons/visualize.py`. It centralizes spatial, energy-map,
@@ -257,21 +263,12 @@ are centered immediately above and below the 70 cm cavity.
 
 ## Compiled IEC fusion source
 
-The default source remains the simple 14.1 MeV cylindrical source. To use the
-separate C++ fusion source instead, run (inside the same environment that has
-OpenMC installed):
-
-```sh
-"$OPENMC_ENV/bin/python" examples/run_custom_source.py \
-  config/reactorpath1.yaml --plot
-```
-
-The `gen_reactor` configuration is a ready-to-run custom-source example:
-
-```sh
-"$OPENMC_ENV/bin/python" examples/run_custom_source.py \
-  config/gen_reactor.yaml --plot
-```
+The standard `iec_neutrons.cli run` command uses the YAML `source` block,
+normally the simple cylindrical monoenergetic source. To use the compiled C++
+D-T/D-D source instead, use the custom-source runner shown in the run workflow
+above. `gen_reactor.yaml` is the ready-to-run custom-source configuration. Both
+run paths produce a statepoint; plot them with the same command and the
+statepoint path printed at the end of either run.
 
 It models an anode/inner-cavity radius of 38 mm (76 mm cavity diameter),
 14 mm aluminium, 15 mm water, 3 mm aluminium, and a 500 mm radial air layer.
@@ -308,28 +305,16 @@ per MeV; neutron flux is additionally divided by the active He-3 volume. When
 plotting an existing statepoint with `iec-neutrons plot`, the CSV is written
 beside the plots.
 
-The runner compiles [`custom_source.cpp`](src/iec_neutrons/custom_source.cpp)
-against the active environment's OpenMC headers and `libopenmc.so`, substitutes
-an `openmc.CompiledSource` for the model's default source, and starts the
-fixed-source run. `--plot` creates the plots after the run using Matplotlib in
-that same Python environment. By default, all files for this custom-source run
-are kept together in `runs/<config-name>-custom-source/` (for example,
-`runs/reactorpath2-custom-source/`), separate from the standard run at
-`runs/reactorpath2/`. The statepoint and generated plots are in that folder.
-Set `OPENMC_PREFIX` if the OpenMC headers and shared library are not under the
-active Python environment. `--source-cpp`, `--compiler`, `--output-dir`, and
-`--parameters` can override their defaults.
-
-To plot an already completed custom-source run without rerunning it, pass the
-actual statepoint path printed by OpenMC. The run made before this directory
-change is in `runs/custom_source/`:
-
-```sh
-"$OPENMC_ENV/bin/python" -m iec_neutrons.cli plot \
-  config/reactorpath2.yaml runs/custom_source/statepoint.10.h5
-```
-
-For a fresh run and plots in one command, use the `--plot` example above.
+The custom-source runner compiles
+[`custom_source.cpp`](src/iec_neutrons/custom_source.cpp) against the active
+environment's OpenMC headers and `libopenmc.so`, assigns an
+`openmc.CompiledSource`, and starts the fixed-source run. It writes output to
+`runs/<config-name>-custom-source/` by default, separate from the standard
+`runs/<config-name>/` directory. Set `OPENMC_PREFIX` if the OpenMC headers and
+shared library are not under the active Python environment. `--source-cpp`,
+`--compiler`, `--output-dir`, and `--parameters` are available to override
+defaults. Its optional `--plot` flag is a convenience; the two-step run then
+plot workflow above is the same for standard and compiled-source statepoints.
 
 The C++ source uses the OpenMC 0.16 compiled-source ABI (`openmc_create_source`)
 and implements the Bosch-Hale total cross sections for T(d,n)4He,
@@ -363,7 +348,7 @@ inferred from geometry alone.
 Parameters are semicolon-separated `key=value` pairs. For example:
 
 ```sh
-python examples/run_custom_source.py config/reactorpath1.yaml \
+"$OPENMC_ENV/bin/python" examples/run_custom_source.py config/reactorpath1.yaml \
   --parameters 'r_anode_cm=4.05;r_cathode_cm=0.73;half_height_cm=17.5;voltage_kev=90;neutral_temperature_k=300;tritium_fraction=0.8;zone_beam_target=1;zone_beam_wall=0;zone_beam_beam=0;source_strength=1;neutral_profile=0:1,0.5:0.8,1:0.4'
 ```
 
@@ -398,7 +383,7 @@ DOI: [10.1088/0029-5515/32/4/I07](https://doi.org/10.1088/0029-5515/32/4/I07).
 The configuration parser and geometry validation can be tested without OpenMC:
 
 ```sh
-python -m pytest
+"$OPENMC_ENV/bin/python" -m pytest
 ```
 
 ## GitHub
