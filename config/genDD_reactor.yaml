@@ -243,6 +243,7 @@ tally:
 visualization:
   mesh_bins: 256
   voxel_bins: 128
+  he3_axial_bins: 40
   slice_thickness_cm: 0.4
   energy_bins_mev: [0.0, 0.1, 0.5, 1.0, 2.0, 2.3, 2.45, 2.6, 3.0, 5.0]
   marginal_x_cm: 20.0

@@ -18,6 +18,7 @@ def test_example_configuration_loads() -> None:
     assert config.tally.energy_bins_mev[0] == 0.0
     assert config.visualization.mesh_bins == 100
     assert config.visualization.voxel_bins == 64
+    assert config.visualization.he3_axial_bins == 40
     assert not config.physics.photon_transport
 
 
@@ -58,6 +59,16 @@ def test_invalid_visualization_mesh_resolution_is_rejected(tmp_path: Path) -> No
     path.write_text(text, encoding="utf-8")
 
     with pytest.raises(ConfigError, match="visualization.mesh_bins"):
+        load_config(path)
+
+
+def test_invalid_he3_axial_resolution_is_rejected(tmp_path: Path) -> None:
+    text = EXAMPLE.read_text(encoding="utf-8").split("\nvisualization:", maxsplit=1)[0]
+    text += "\nvisualization:\n  he3_axial_bins: 0\n"
+    path = tmp_path / "invalid.yaml"
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="visualization.he3_axial_bins"):
         load_config(path)
 
 

@@ -170,8 +170,9 @@ Plots are written to `<statepoint-directory>/plots/` by default. They include
 top-down and side-on geometry figures, spatial total-flux and energy-group
 maps, relative-uncertainty maps, line profiles at the configured
 `visualization.marginal_*_cm` positions, region spectra, and the configured
-detector spectra. He-3 configurations additionally produce combined flux and
-capture-response plots. Spatial maps span the configured world radius,
+detector spectra. He-3 configurations additionally produce a combined
+flux/capture spectrum on a logarithmic y scale and a position-resolved capture
+heatmap. Spatial maps span the configured world radius,
 including vacuum; total-flux heatmaps include dotted, numerically labelled
 contours. Geometry figures show configured materials and components. Line
 profiles use the nearest mesh-bin center to the requested coordinate.
@@ -216,14 +217,24 @@ Material-region tallies include neutron total, scattering, absorption, fission,
 fission-neutron production, (n,2n), (n,3n), and (n,gamma) scores.
 `neutron_energy_transfer_*` tallies bin incoming and outgoing neutron energies
 to show scattering energy loss or gain; `secondary_particle_production`
-records neutron/photon secondary yields. The He-3 gas also has an energy-binned
-(n,p) response tally. Plotting a statepoint from a He-3 configuration writes
-two combined plots, `he3_detector_spectrum_<component>_linear.png` and
-`he3_detector_spectrum_<component>_log.png`. Each overlays the volume-averaged
-neutron spectrum in the active gas and the (n,p) capture response using
-separate y-axes, and includes a log-x inset from 1 eV to 0.1 MeV. Fine
-energy bins are tallied in this interval for both curves; rerun the simulation
-to add these fine-bin tallies to an older statepoint. The capture response is
+records neutron/photon secondary yields. The He-3 gas has energy-binned
+neutron-flux and (n,p) response tallies. Plotting a statepoint from a He-3
+configuration writes `he3_detector_spectrum_<component>_log.png`, which
+overlays the volume-averaged neutron spectrum and capture response on separate
+y-axes, with a log-x inset from 1 eV to 0.1 MeV. It also writes
+`he3_capture_response_<component>_height_energy.png`: energy is logarithmic,
+height is linear and measured relative to the center of the active gas, and
+color is logarithmic capture-response density per source neutron, MeV, and cm.
+The heatmap uses 40 equal axial bins by default; set
+`visualization.he3_axial_bins` to change the height resolution. Fine logarithmic
+energy bins span 1e-5 eV to 100 keV (24 bins per decade), with coarser bins
+above 100 keV. This resolves thermal capture as well as the fast source
+spectrum. Zero-response bins are left blank on the logarithmic color scale.
+The 0–1e-5 eV tally bin is omitted because it cannot be drawn on a logarithmic
+energy axis.
+Rerun the simulation to add the axial-response tally to an older statepoint;
+plotting older files still produces the log spectrum and reports the missing
+heatmap tally. The capture response is
 not a pulse-height spectrum: the model does not simulate charge collection or
 infer neutron energy from the tube's electrical signal.
 Reaction channels and yields are limited by the selected evaluated nuclear

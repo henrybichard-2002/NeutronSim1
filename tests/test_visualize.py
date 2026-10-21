@@ -8,6 +8,7 @@ from iec_neutrons.visualize import (
     _geometry_voxel_data,
     _plot_geometry,
     _plot_geometry_voxels,
+    _plot_he3_capture_heatmap,
     _plot_he3_detector_spectrum,
     _plot_spatial_map,
 )
@@ -260,7 +261,7 @@ def test_geometry_voxel_plot_shows_material_voxels(tmp_path: Path) -> None:
     assert path.is_file()
 
 
-def test_he3_spectra_share_linear_and_log_plots_with_low_energy_inset(
+def test_he3_spectrum_log_plot_retains_low_energy_inset(
     tmp_path: Path, monkeypatch
 ) -> None:
     matplotlib = pytest.importorskip("matplotlib")
@@ -284,33 +285,83 @@ def test_he3_spectra_share_linear_and_log_plots_with_low_energy_inset(
     flux = np.linspace(1.0, 2.0, len(edges) - 1)
     capture_response = np.linspace(1.0e-5, 2.0e-5, len(edges) - 1)
     capture_response[1:-2] = 0.0
-    for yscale in ("linear", "log"):
-        path = _plot_he3_detector_spectrum(
-            flux,
-            capture_response,
-            edges,
-            "detector_he3_gas",
-            yscale,
-            tmp_path / f"he3_spectrum_{yscale}.png",
-            plt,
-            PLOT_STYLE,
-        )
+    path = _plot_he3_detector_spectrum(
+        flux,
+        capture_response,
+        edges,
+        "detector_he3_gas",
+        "log",
+        tmp_path / "he3_spectrum_log.png",
+        plt,
+        PLOT_STYLE,
+    )
 
-        assert path.is_file()
-        figure = figures[-1][0]
-        axis, capture_axis, inset_capture_axis = figure.axes
-        inset = axis.child_axes[0]
-        assert axis.get_xlabel() == "Incident neutron energy (MeV)"
-        assert "Volume-averaged neutron flux" in axis.get_ylabel()
-        assert "He-3 (n,p) reactions" in capture_axis.get_ylabel()
-        assert yscale in axis.get_title()
-        assert axis.get_yscale() == yscale
-        assert capture_axis.get_yscale() == yscale
-        assert inset.get_xscale() == "log"
-        assert inset.get_xlim() == pytest.approx((1.0e-6, 0.1))
-        assert inset.get_yscale() == yscale
-        assert inset_capture_axis.get_yscale() == yscale
-        figure.clear()
+    assert path.is_file()
+    figure = figures[-1][0]
+    axis, capture_axis, inset_capture_axis = figure.axes
+    inset = axis.child_axes[0]
+    assert axis.get_xlabel() == "Incident neutron energy (MeV)"
+    assert "Volume-averaged neutron flux" in axis.get_ylabel()
+    assert "He-3 (n,p) reactions" in capture_axis.get_ylabel()
+    assert "log" in axis.get_title()
+    assert axis.get_yscale() == "log"
+    assert capture_axis.get_yscale() == "log"
+    assert inset.get_xscale() == "log"
+    assert inset.get_xlim() == pytest.approx((1.0e-6, 0.1))
+    assert inset.get_yscale() == "log"
+    assert inset_capture_axis.get_yscale() == "log"
+    figure.clear()
+
+
+def test_he3_capture_heatmap_uses_log_energy_and_response_scales(
+    tmp_path: Path, monkeypatch
+) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from matplotlib.colors import LogNorm
+
+    figures = []
+    original_subplots = plt.subplots
+
+    def capture_subplots(*args, **kwargs):
+        figure, axes = original_subplots(*args, **kwargs)
+        figures.append(figure)
+        return figure, axes
+
+    monkeypatch.setattr(plt, "subplots", capture_subplots)
+    monkeypatch.setattr(plt, "close", lambda figure: None)
+    energy_edges = np.array(
+        [0.0, 1.0e-11, 1.0e-9, 1.0e-7, 1.0e-5, 1.0e-3, 0.1, 1.0, 20.0]
+    )
+    z_edges = np.linspace(-15.4, 15.4, 41)
+    response_density = np.geomspace(
+        1.0e-12, 1.0e-5, 40 * (len(energy_edges) - 1)
+    ).reshape(40, -1)
+    response_density[0, 1:] = 0.0
+
+    path = _plot_he3_capture_heatmap(
+        energy_edges,
+        z_edges,
+        response_density,
+        "detector_he3_gas",
+        tmp_path / "he3_capture_heatmap.png",
+        plt,
+        LogNorm,
+        PLOT_STYLE,
+    )
+
+    assert path.is_file()
+    figure = figures[-1]
+    axis, colorbar_axis = figure.axes
+    assert axis.get_xscale() == "log"
+    assert axis.get_xlim() == pytest.approx((1.0e-11, 20.0))
+    assert axis.get_ylim() == pytest.approx((-15.4, 15.4))
+    assert axis.get_ylabel() == "Height in He-3 gas relative to detector center (cm)"
+    assert isinstance(axis.collections[0].norm, LogNorm)
+    assert "capture response density" in colorbar_axis.get_ylabel().lower()
+    figure.clear()
 
 
 def test_gen_reactor_voxel_geometry_has_cutaway_and_components() -> None:

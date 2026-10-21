@@ -190,9 +190,10 @@ def test_gen_reactor_geometry_and_custom_source_zones() -> None:
 
 
 def test_gen_dd_reactor_geometry_and_detector_shields() -> None:
-    pytest.importorskip("openmc")
+    openmc = pytest.importorskip("openmc")
     config = load_config(CONFIG_DIR / "genDD_reactor.yaml")
     model = build_model(config)
+    tallies = {tally.name: tally for tally in model.tallies}
 
     assert config.custom_source is not None
     assert config.custom_source.tritium_fraction == 0.0
@@ -227,6 +228,23 @@ def test_gen_dd_reactor_geometry_and_detector_shields() -> None:
         assert f"he3_n_p_spectrum_{prefix}_he3_gas" in {
             tally.name for tally in model.tallies
         }
+        axial_tally = tallies[f"he3_n_p_axial_energy_{prefix}_he3_gas"]
+        mesh_filter = next(
+            item for item in axial_tally.filters if isinstance(item, openmc.MeshFilter)
+        )
+        energy_filter = next(
+            item
+            for item in axial_tally.filters
+            if isinstance(item, openmc.EnergyFilter)
+        )
+        assert tuple(mesh_filter.mesh.dimension) == (1, 1, 40)
+        assert any(
+            value == pytest.approx(1.0e-5) for value in energy_filter.bins[:, 0]
+        )
+        assert any(value == pytest.approx(1.0) for value in energy_filter.bins[:, 0])
+        assert any(
+            value == pytest.approx(1.0e5) for value in energy_filter.bins[:, 1]
+        )
     assert components["aluminium_cap_top"].center_cm == (0.0, 0.0, 35.7)
     assert components["aluminium_cap_bottom"].center_cm == (0.0, 0.0, -35.7)
 

@@ -175,8 +175,8 @@ def build_model(config: SimulationConfig):
     he3_energy_edges_ev = [
         0.0,
         *(
-            10.0 ** (5.0 * index / 100.0)
-            for index in range(101)
+            10.0 ** (-5.0 + 10.0 * index / 240.0)
+            for index in range(241)
         ),
         *(edge for edge in energy_edges_ev if edge > 1.0e5),
     ]
@@ -266,6 +266,34 @@ def build_model(config: SimulationConfig):
         he3_response.scores = ["(n,p)"]
         tallies.append(he3_response)
 
+        center_x, center_y, center_z = component.center_cm
+        half_x, half_y, half_z = component.half_extents_cm
+        axial_mesh = openmc.RegularMesh(
+            name=f"he3_axial_mesh_{component.name}"
+        )
+        axial_mesh.dimension = (1, 1, config.visualization.he3_axial_bins)
+        axial_mesh.lower_left = (
+            center_x - half_x,
+            center_y - half_y,
+            center_z - half_z,
+        )
+        axial_mesh.upper_right = (
+            center_x + half_x,
+            center_y + half_y,
+            center_z + half_z,
+        )
+        axial_capture = openmc.Tally(
+            name=f"he3_n_p_axial_energy_{component.name}"
+        )
+        axial_capture.filters = [
+            openmc.CellFilter(component_cells[component.name]),
+            openmc.ParticleFilter("neutron"),
+            openmc.MeshFilter(axial_mesh),
+            make_energy_filter(he3_energy_edges_ev),
+        ]
+        axial_capture.nuclides = ["He3"]
+        axial_capture.scores = ["(n,p)"]
+        tallies.append(axial_capture)
     production_tally = openmc.Tally(name="secondary_particle_production")
     production_energy_ev = sorted(
         set([0.0, 1.0e3, 1.0e5, 1.0e6, *energy_edges_ev])

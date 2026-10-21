@@ -40,6 +40,19 @@ class ComponentConfig:
     axis: str | None = None
     carve_from_base: bool = True
 
+    @property
+    def half_extents_cm(self) -> tuple[float, float, float]:
+        if self.shape == "box":
+            size_x, size_y, size_z = self.dimensions_cm
+            return size_x / 2, size_y / 2, size_z / 2
+
+        radius, length = self.dimensions_cm
+        if self.axis == "x":
+            return length / 2, radius, radius
+        if self.axis == "y":
+            return radius, length / 2, radius
+        return radius, radius, length / 2
+
 
 @dataclass(frozen=True)
 class DetectorConfig:
@@ -103,6 +116,7 @@ class TallyConfig:
 class VisualizationConfig:
     mesh_bins: int = 100
     voxel_bins: int = 64
+    he3_axial_bins: int = 40
     slice_thickness_cm: float = 0.4
     energy_bins_mev: tuple[float, ...] = ()
     marginal_x_cm: float = 0.0
@@ -454,6 +468,7 @@ def load_config(path: str | Path) -> SimulationConfig:
         {
             "mesh_bins",
             "voxel_bins",
+            "he3_axial_bins",
             "slice_thickness_cm",
             "energy_bins_mev",
             "marginal_x_cm",
@@ -479,6 +494,10 @@ def load_config(path: str | Path) -> SimulationConfig:
         ),
         voxel_bins=_positive_int(
             visualization_data.get("voxel_bins", 64), "visualization.voxel_bins"
+        ),
+        he3_axial_bins=_positive_int(
+            visualization_data.get("he3_axial_bins", 40),
+            "visualization.he3_axial_bins",
         ),
         slice_thickness_cm=_number(
             visualization_data.get("slice_thickness_cm", 0.4),
