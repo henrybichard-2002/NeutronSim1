@@ -291,3 +291,24 @@ def test_world_neutron_leakage_spectrum_uses_outward_surface_current() -> None:
                 0.0,
             )
             assert model.geometry.find(position)[-1].name == f"{prefix}_{suffix}"
+
+
+def test_dual_borated_reactor_builds_two_sources_and_four_survey_tallies() -> None:
+    openmc = pytest.importorskip("openmc")
+    config = load_config(CONFIG_DIR / "genDT_dual_borated_jacket.yaml")
+    model = build_model(config)
+    tallies = {tally.name: tally for tally in model.tallies}
+    cells = {cell.name: cell for cell in model.geometry.get_all_cells().values()}
+
+    assert config.geometry.background_material == "air"
+    assert not config.detector.enabled
+    assert "detector_energy_spectrum" not in tallies
+    assert cells["reactor_2_cavity"].fill is None
+    assert model.geometry.find((100.0, 0.0, 0.0))[-1].name == "reactor_2_cavity"
+    for component in config.geometry.components:
+        if not component.score_spectrum:
+            continue
+        tally = tallies[f"survey_spectrum_{component.name}"]
+        assert tally.scores == ["flux"]
+        assert sum(isinstance(item, openmc.EnergyFilter) for item in tally.filters) == 1
+        assert sum(isinstance(item, openmc.ParticleFilter) for item in tally.filters) == 1

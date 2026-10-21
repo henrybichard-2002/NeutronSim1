@@ -99,6 +99,9 @@ def main() -> int:
             f"{radius_fraction:g}:{density:g}"
             for radius_fraction, density in custom.neutral_profile
         )
+        reactor_centers = "|".join(
+            f"{x_cm:g},{y_cm:g}" for x_cm, y_cm in custom.reactor_centers_cm
+        )
         parameters = ";".join(
             (
                 f"r_anode_cm={config.geometry.cavity_radius_cm:g}",
@@ -112,6 +115,7 @@ def main() -> int:
                 f"zone_beam_beam={custom.zone_beam_beam:g}",
                 f"source_strength={custom.source_strength:g}",
                 f"neutral_profile={profile}",
+                f"reactor_centers_cm={reactor_centers}",
             )
         )
     model.settings.source = openmc.CompiledSource(

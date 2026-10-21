@@ -84,6 +84,11 @@ def plot_results(
     expected_names = set(map_tally_names.values())
     expected_names.add("flux_spectrum_source_cavity")
     expected_names.update(f"flux_spectrum_{layer.name}" for layer in config.geometry.layers)
+    expected_names.update(
+        f"survey_spectrum_{component.name}"
+        for component in config.geometry.components
+        if component.score_spectrum
+    )
 
     with openmc.StatePoint(statepoint_file) as statepoint:
         available_names = {tally.name for tally in statepoint.tallies.values()}
@@ -134,6 +139,7 @@ def plot_results(
             for view in ("xy", "xz")
         }
         spectra = {}
+        survey_spectra = {}
         he3_detector_spectra = {}
         he3_axial_capture_responses = {}
         if "flux_spectrum_source" in available_names:
@@ -161,6 +167,8 @@ def plot_results(
                 statepoint.get_tally(name=f"flux_spectrum_{layer.name}"), np
             )
         for component in config.geometry.components:
+            if component.material == "void":
+                continue
             material = config.materials[component.material]
             if "He3" not in (material.nuclides or {}):
                 continue
@@ -347,6 +355,36 @@ def plot_results(
                 z_edges_cm,
                 response_density,
             )
+        for component in config.geometry.components:
+            if not component.score_spectrum:
+            continue
+            survey_tally = statepoint.get_tally(
+            name=f"survey_spectrum_{component.name}"
+            )
+            energy_filter = next(
+            (
+                item
+                for item in survey_tally.filters
+                if isinstance(item, openmc.EnergyFilter)
+            ),
+            None,
+            )
+            if energy_filter is None:
+            raise ValueError(
+                f"Survey spectrum tally for {component.name!r} has no energy filter"
+            )
+            bins_ev = np.asarray(energy_filter.bins, dtype=float)
+            edges_mev = np.concatenate((bins_ev[:1, 0], bins_ev[:, 1])) / 1.0e6
+            if component.shape == "box":
+            volume_cm3 = float(np.prod(component.dimensions_cm))
+            else:
+            component_radius_cm, component_length_cm = component.dimensions_cm
+            volume_cm3 = np.pi * component_radius_cm**2 * component_length_cm
+            values = _spectrum_values(survey_tally, np)
+            survey_spectra[component.name] = (
+            edges_mev,
+            values / volume_cm3 / np.diff(edges_mev),
+            )
         detector_available = "detector_energy_spectrum" in available_names
         detector_mean = None
         detector_std_dev = None
@@ -363,7 +401,7 @@ def plot_results(
                 _spectrum_values(detector_tally, np, value="std_dev")
                 / detector_volume_cm3
             )
-        else:
+        elif config.detector.enabled:
             warnings.warn(
                 "This statepoint has no detector_energy_spectrum tally. "
                 "Spatial and geometry plots will mark the configured detector, "
@@ -487,6 +525,15 @@ def plot_results(
             PLOT_STYLE,
         )
     )
+    if survey_spectra:
+        paths.append(
+            _plot_survey_spectra(
+                survey_spectra,
+                destination / "survey_region_neutron_spectra.png",
+                plt,
+                np,
+            )
+        )
 
     components_by_name = {
         component.name: component for component in config.geometry.components
@@ -1384,6 +1431,27 @@ def _plot_marginals(
     axes[1].legend(fontsize="small")
     axes[1].grid(True, which="both", alpha=0.25)
     figure.suptitle(f"{'XY' if view == 'xy' else 'XZ'} flux line profiles")
+    figure.savefig(str(path), dpi=180)
+    plt.close(figure)
+    return path
+
+
+def _plot_survey_spectra(spectra, path, plt, np) -> Path:
+    figure, axis = plt.subplots(figsize=(10, 6), constrained_layout=True)
+    for name, (edges, values) in spectra.items():
+        axis.stairs(values[1:], edges[1:], label=name, linewidth=1.6)
+    axis.set_xscale("log")
+    axis.set_yscale("log")
+    axis.set_xlabel("Neutron energy (MeV)")
+    axis.set_ylabel("Track length density (cm$^{-2}$ per source neutron per MeV)")
+    axis.set_title("Neutron spectra at the four fixed survey regions")
+    axis.grid(True, which="both", alpha=0.25)
+    axis.legend()
+    if not any(np.any(values[1:] > 0) for _, values in spectra.values()):
+        axis.text(
+            0.5, 0.5, "No positive tally values", transform=axis.transAxes,
+            ha="center", va="center"
+        )
     figure.savefig(str(path), dpi=180)
     plt.close(figure)
     return path

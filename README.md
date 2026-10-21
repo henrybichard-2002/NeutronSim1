@@ -49,6 +49,8 @@ neutron nuclides and thermal-scattering tables used by that configuration:
 | `example.yaml` | `config/cross_sections/example.xml` |
 | `he3_detector.yaml` | `config/cross_sections/he3_detector.xml` |
 | `genDD_reactor.yaml` | `config/cross_sections/genDD_reactor.xml` |
+| `genDT_borated_jacket.yaml` | `config/cross_sections/genDT_borated_jacket.xml` |
+| `genDT_dual_borated_jacket.yaml` | `config/cross_sections/genDT_dual_borated_jacket.xml` |
 
 Each index has the same basename as its YAML configuration. Set
 `OPENMC_CROSS_SECTIONS` to the matching index before each run, for example:
@@ -194,16 +196,65 @@ low-value outliers from compressing the displayed color range.
 ## External assemblies and interaction tallies
 
 `geometry.components` configures finite components beyond or within the radial
-layers. Supported shapes are axis-aligned boxes (`size_cm: [x, y, z]`) and
-cylinders (`radius_cm`, `length_cm`, and `axis: x|y|z`), each located by
+layers. Supported shapes are axis-aligned boxes (`size_cm: [x, y, z]`),
+cylinders (`radius_cm`, `length_cm`, and `axis: x|y|z`), and annular
+`cylinder_shell` components (`inner_radius_cm`, `radius_cm`, and `length_cm`),
+each located by
 `center_cm: [x, y, z]`. Components carve their volume out of the reactor
 materials by default. For nested assemblies, set `carve_from_base: false` on
 inner components that are fully contained inside an outer component which
 already carves the reactor material. This keeps redundant internal surfaces
 out of every reactor cell while the component cells still replace one another
 in list order, with later components taking priority over earlier ones.
+Set `material: void` for a true vacuum/void component. Set
+`score_spectrum: true` on a component to add a fine-energy neutron-flux tally
+for that volume. `geometry.background_material` optionally fills otherwise
+unoccupied space inside the spherical world boundary; it is omitted by default,
+so the external region remains vacuum. `detector.enabled: false` suppresses
+the generic rectangular detector tally and marker.
 Components and the detector scoring volume must fit inside the spherical world
 boundary.
+
+## Slotted borated-polyethylene jackets
+
+[`config/genDT_borated_jacket.yaml`](config/genDT_borated_jacket.yaml) and
+[`config/genDT_dual_borated_jacket.yaml`](config/genDT_dual_borated_jacket.yaml)
+use the D-T custom source and the same 70 cm tall reactor vessel as
+`genDT_reactor`: 14 mm aluminium, 15 mm water, and 3 mm aluminium around the
+3.8 cm-radius cavity, including aluminium end caps. Each jacket is 90 cm tall
+(10 cm beyond the vessel at each end), with 20 cm of borated polyethylene and
+3 mm of lead. The polyethylene recipe is 5 wt% natural boron and 95 wt%
+polyethylene at 0.94 g/cm3; the YAML element amounts are normalized atom
+fractions. The 14 cm-wide slot runs radially through both jacket layers for
+their full height. The single jacket opens toward +x. The dual configuration
+places reactor centers 100 cm apart and points the openings toward each other;
+the compiled source samples the two identical reactor centers with equal
+probability. The four spectrum scoring cylinders remain fixed relative to
+reactor 1: at 50 cm radius in the gap direction, opposite the gap, and at
+either side of the gap-aligned position, each offset by 5 cm in y. Their active
+dimensions match the previous He-3 gas volume (2.34 cm diameter by 30.8 cm
+high), but these are virtual air-filled scoring regions, not He-3 detectors.
+Plotting writes `survey_region_neutron_spectra.png` with fine-energy spectra
+for the four regions.
+
+Run either configuration with its matching cross-section index and the
+compiled custom-source runner:
+
+```sh
+CONFIG=config/genDT_borated_jacket.yaml
+CONFIG_STEM="$(basename "$CONFIG" .yaml)"
+export OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/${CONFIG_STEM}.xml"
+"$OPENMC_ENV/bin/python" examples/run_custom_source.py "$CONFIG"
+```
+
+Change `CONFIG` to `config/genDT_dual_borated_jacket.yaml` for the pair.
+Plot either run with the normal plotting command and the statepoint path
+printed by the run:
+
+```sh
+"$OPENMC_ENV/bin/python" -m iec_neutrons.cli plot \
+  "$CONFIG" runs/"${CONFIG_STEM}-custom-source"/statepoint.100.h5
+```
 
 The provisional [`config/he3_detector.yaml`](config/he3_detector.yaml) models
 reactor path 2 with an external assembly centered 30 cm from the source along

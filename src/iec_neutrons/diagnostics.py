@@ -301,6 +301,8 @@ def print_run_summary(
             print(f"    {particle}: {value:.6g}", file=file)
 
         for component in config.geometry.components:
+            if component.material == "void":
+                continue
             nuclides = config.materials[component.material].nuclides or {}
             if "He3" not in nuclides:
                 continue
@@ -331,7 +333,11 @@ def print_run_summary(
         )
         material_names = [
             layer.name for layer in config.geometry.layers
-        ] + [component.name for component in config.geometry.components]
+        ] + [
+            component.name
+            for component in config.geometry.components
+            if component.material != "void"
+        ]
         print("\n  Neutron interaction scores per source history:", file=file)
         for material_name in material_names:
             tally = statepoint.get_tally(

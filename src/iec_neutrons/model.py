@@ -49,7 +49,10 @@ def build_model(config: SimulationConfig):
                 & -openmc.ZPlane(z0=center_z + size_z / 2)
             )
 
-        radius_cm, length_cm = component.dimensions_cm
+        if component.shape == "cylinder_shell":
+            inner_radius_cm, radius_cm, length_cm = component.dimensions_cm
+        else:
+            radius_cm, length_cm = component.dimensions_cm
         axis = component.axis
         if axis == "x":
             surface = openmc.XCylinder(y0=center_y, z0=center_z, r=radius_cm)
@@ -63,7 +66,22 @@ def build_model(config: SimulationConfig):
             surface = openmc.ZCylinder(x0=center_x, y0=center_y, r=radius_cm)
             lower = openmc.ZPlane(z0=center_z - length_cm / 2)
             upper = openmc.ZPlane(z0=center_z + length_cm / 2)
-        return -surface & +lower & -upper
+        region = -surface & +lower & -upper
+        if component.shape == "cylinder_shell":
+            if axis == "x":
+                inner_surface = openmc.XCylinder(
+                    y0=center_y, z0=center_z, r=inner_radius_cm
+                )
+            elif axis == "y":
+                inner_surface = openmc.YCylinder(
+                    x0=center_x, z0=center_z, r=inner_radius_cm
+                )
+            else:
+                inner_surface = openmc.ZCylinder(
+                    x0=center_x, y0=center_y, r=inner_radius_cm
+                )
+            region &= +inner_surface
+        return region
 
     def union(regions):
         combined = regions[0]
@@ -136,19 +154,29 @@ def build_model(config: SimulationConfig):
             region &= ~union(component_regions[index + 1 :])
         cell = openmc.Cell(
             name=component.name,
-            fill=materials[component.material],
+            fill=None if component.material == "void" else materials[component.material],
             region=region,
         )
         cells.append(cell)
-        material_cells.append((component.name, cell))
+        if component.material != "void":
+            material_cells.append((component.name, cell))
         tally_cells.append((component.name, cell))
         component_cells[component.name] = cell
 
     external_region = -boundary & ~previous_region
     if component_union is not None:
         external_region &= ~component_union
+    background_fill = (
+        materials[config.geometry.background_material]
+        if config.geometry.background_material is not None
+        else None
+    )
     cells.append(
-        openmc.Cell(name="external vacuum", region=external_region)
+        openmc.Cell(
+            name="external background" if background_fill is not None else "external vacuum",
+            fill=background_fill,
+            region=external_region,
+        )
     )
     geometry = openmc.Geometry(openmc.Universe(cells=cells))
 
@@ -242,6 +270,8 @@ def build_model(config: SimulationConfig):
             tallies.append(photon_heating)
 
     for component in config.geometry.components:
+        if component.material == "void":
+            continue
         composition = config.materials[component.material].nuclides or {}
         if "He3" not in composition:
             continue
@@ -294,6 +324,18 @@ def build_model(config: SimulationConfig):
         axial_capture.nuclides = ["He3"]
         axial_capture.scores = ["(n,p)"]
         tallies.append(axial_capture)
+    for component in config.geometry.components:
+        if component.score_spectrum:
+            survey_spectrum = openmc.Tally(
+                name=f"survey_spectrum_{component.name}"
+            )
+            survey_spectrum.filters = [
+                openmc.CellFilter(component_cells[component.name]),
+                openmc.ParticleFilter("neutron"),
+                make_energy_filter(he3_energy_edges_ev),
+            ]
+            survey_spectrum.scores = ["flux"]
+            tallies.append(survey_spectrum)
     production_tally = openmc.Tally(name="secondary_particle_production")
     production_energy_ev = sorted(
         set([0.0, 1.0e3, 1.0e5, 1.0e6, *energy_edges_ev])
@@ -351,25 +393,26 @@ def build_model(config: SimulationConfig):
         spectrum_tally.scores = ["flux"]
         tallies.append(spectrum_tally)
 
-    detector_mesh = openmc.RegularMesh(name="spectrum_detector")
-    detector_mesh.dimension = (1, 1, 1)
-    detector_mesh.lower_left = (
-        config.detector.x_cm - config.detector.width_x_cm / 2,
-        config.detector.y_cm - config.detector.width_y_cm / 2,
-        config.detector.z_cm - config.detector.thickness_z_cm / 2,
-    )
-    detector_mesh.upper_right = (
-        config.detector.x_cm + config.detector.width_x_cm / 2,
-        config.detector.y_cm + config.detector.width_y_cm / 2,
-        config.detector.z_cm + config.detector.thickness_z_cm / 2,
-    )
-    detector_tally = openmc.Tally(name="detector_energy_spectrum")
-    detector_tally.filters = [
-        openmc.MeshFilter(detector_mesh),
-        make_energy_filter(energy_edges_ev),
-    ]
-    detector_tally.scores = ["flux"]
-    tallies.append(detector_tally)
+    if config.detector.enabled:
+        detector_mesh = openmc.RegularMesh(name="spectrum_detector")
+        detector_mesh.dimension = (1, 1, 1)
+        detector_mesh.lower_left = (
+            config.detector.x_cm - config.detector.width_x_cm / 2,
+            config.detector.y_cm - config.detector.width_y_cm / 2,
+            config.detector.z_cm - config.detector.thickness_z_cm / 2,
+        )
+        detector_mesh.upper_right = (
+            config.detector.x_cm + config.detector.width_x_cm / 2,
+            config.detector.y_cm + config.detector.width_y_cm / 2,
+            config.detector.z_cm + config.detector.thickness_z_cm / 2,
+        )
+        detector_tally = openmc.Tally(name="detector_energy_spectrum")
+        detector_tally.filters = [
+            openmc.MeshFilter(detector_mesh),
+            make_energy_filter(energy_edges_ev),
+        ]
+        detector_tally.scores = ["flux"]
+        tallies.append(detector_tally)
 
     return openmc.Model(geometry=geometry, materials=list(materials.values()), settings=settings, tallies=tallies)
 

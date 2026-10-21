@@ -1,0 +1,209 @@
+# Two identical D-T IEC reactors, 100 cm apart, with inward-facing jacket gaps.
+source:
+  radius_cm: 3.8
+  height_cm: 35.0
+  energy_mev: 14.1
+
+custom_source:
+  cathode_radius_cm: 0.73
+  voltage_kev: 90.0
+  neutral_temperature_k: 300.0
+  tritium_fraction: 0.5
+  zone_beam_target: 1.0
+  zone_beam_wall: 1.0
+  zone_beam_beam: 1.0
+  source_strength: 1.0
+  neutral_profile:
+    - [0.0, 1.0]
+    - [1.0, 1.0]
+  reactor_centers_cm: [[0.0, 0.0], [100.0, 0.0]]
+
+detector:
+  enabled: false
+  x_cm: 0.0
+  y_cm: 0.0
+  z_cm: 0.0
+  width_x_cm: 0.4
+  width_y_cm: 0.4
+  thickness_z_cm: 0.05
+
+geometry:
+  cavity:
+    radius_cm: 3.8
+    height_cm: 70.0
+  background_material: air
+  layers:
+    - name: aluminium_1
+      thickness_mm: 14.0
+      height_cm: 70.0
+      material: aluminium
+    - name: water_1
+      thickness_mm: 15.0
+      height_cm: 70.0
+      material: water
+    - name: aluminium_2
+      thickness_mm: 3.0
+      height_cm: 70.0
+      material: aluminium
+    - name: borated_polyethylene_jacket
+      thickness_mm: 200.0
+      height_cm: 90.0
+      material: borated_polyethylene
+    - name: lead_jacket
+      thickness_mm: 3.0
+      height_cm: 90.0
+      material: lead
+    - name: air_1
+      thickness_mm: 500.0
+      height_cm: 100.0
+      material: air
+  components:
+    - name: jacket_1_gap
+      shape: box
+      center_cm: [17.15, 0.0, 0.0]
+      size_cm: [20.3, 14.0, 90.0]
+      material: air
+    - name: aluminium_cap_top
+      shape: cylinder
+      center_cm: [0.0, 0.0, 35.7]
+      radius_cm: 3.8
+      length_cm: 1.4
+      material: aluminium
+    - name: aluminium_cap_bottom
+      shape: cylinder
+      center_cm: [0.0, 0.0, -35.7]
+      radius_cm: 3.8
+      length_cm: 1.4
+      material: aluminium
+    # Nested cylinders, outer to inner, form the second reactor's radial shells.
+    - name: reactor_2_lead
+      shape: cylinder
+      center_cm: [100.0, 0.0, 0.0]
+      radius_cm: 27.3
+      length_cm: 90.0
+      material: lead
+    - name: reactor_2_borated_polyethylene
+      shape: cylinder
+      center_cm: [100.0, 0.0, 0.0]
+      radius_cm: 27.0
+      length_cm: 90.0
+      material: borated_polyethylene
+    - name: reactor_2_aluminium_2
+      shape: cylinder
+      center_cm: [100.0, 0.0, 0.0]
+      radius_cm: 7.0
+      length_cm: 70.0
+      material: aluminium
+    - name: reactor_2_water
+      shape: cylinder
+      center_cm: [100.0, 0.0, 0.0]
+      radius_cm: 6.7
+      length_cm: 70.0
+      material: water
+    - name: reactor_2_aluminium_1
+      shape: cylinder
+      center_cm: [100.0, 0.0, 0.0]
+      radius_cm: 5.2
+      length_cm: 70.0
+      material: aluminium
+    - name: reactor_2_cavity
+      shape: cylinder
+      center_cm: [100.0, 0.0, 0.0]
+      radius_cm: 3.8
+      length_cm: 70.0
+      material: void
+    - name: reactor_2_aluminium_cap_top
+      shape: cylinder
+      center_cm: [100.0, 0.0, 35.7]
+      radius_cm: 3.8
+      length_cm: 1.4
+      material: aluminium
+    - name: reactor_2_aluminium_cap_bottom
+      shape: cylinder
+      center_cm: [100.0, 0.0, -35.7]
+      radius_cm: 3.8
+      length_cm: 1.4
+      material: aluminium
+    - name: jacket_2_gap
+      shape: box
+      center_cm: [82.85, 0.0, 0.0]
+      size_cm: [20.3, 14.0, 90.0]
+      material: air
+    # These four survey volumes stay fixed relative to reactor 1.
+    - name: spectrum_gap_aligned
+      shape: cylinder
+      center_cm: [50.0, 0.0, 0.0]
+      radius_cm: 1.17
+      length_cm: 30.8
+      material: air
+      score_spectrum: true
+    - name: spectrum_opposite
+      shape: cylinder
+      center_cm: [-50.0, 0.0, 0.0]
+      radius_cm: 1.17
+      length_cm: 30.8
+      material: air
+      score_spectrum: true
+    - name: spectrum_gap_plus_5cm
+      shape: cylinder
+      center_cm: [49.7493718553, 5.0, 0.0]
+      radius_cm: 1.17
+      length_cm: 30.8
+      material: air
+      score_spectrum: true
+    - name: spectrum_gap_minus_5cm
+      shape: cylinder
+      center_cm: [49.7493718553, -5.0, 0.0]
+      radius_cm: 1.17
+      length_cm: 30.8
+      material: air
+      score_spectrum: true
+  world_radius_cm: 200.0
+
+materials:
+  air:
+    density_g_cm3: 0.001225
+    elements:
+      N: 0.78084
+      O: 0.20946
+      Ar: 0.00934
+      C: 0.00036
+  aluminium:
+    density_g_cm3: 2.70
+    elements:
+      Al: 1
+  water:
+    density_g_cm3: 1.0
+    elements:
+      H: 2
+      O: 1
+    thermal_scattering: [c_H_in_H2O]
+  borated_polyethylene:
+    # 5 wt% natural boron, 95 wt% polyethylene; atom fractions below.
+    density_g_cm3: 0.94
+    elements:
+      B: 0.0222626
+      C: 0.325893
+      H: 0.6518444
+    thermal_scattering: [c_H_in_CH2]
+  lead:
+    density_g_cm3: 11.34
+    elements:
+      Pb: 1
+
+settings:
+  particles: 10000
+  batches: 100
+  inactive: 0
+  seed: 12345
+
+tally:
+  energy_min_mev: 0.0
+  energy_max_mev: 20.0
+  energy_bin_width_mev: 0.1
+
+visualization:
+  mesh_bins: 256
+  voxel_bins: 128
+  slice_thickness_cm: 0.4
+  energy_bins_mev: [0.0, 0.1, 1.0, 2.0, 8.0, 12.0, 13.8, 14.2, 15.0, 16.0]

@@ -139,6 +139,36 @@ def test_gen_dd_reactor_loads_as_pure_deuterium() -> None:
     ) == (1.0, 1.0, 1.0)
 
 
+@pytest.mark.parametrize(
+    ("filename", "expected_centers"),
+    [
+        ("genDT_borated_jacket.yaml", ((0.0, 0.0),)),
+        ("genDT_dual_borated_jacket.yaml", ((0.0, 0.0), (100.0, 0.0))),
+    ],
+)
+def test_borated_jacket_configurations(
+    filename: str, expected_centers: tuple[tuple[float, float], ...]
+) -> None:
+    config = load_config(CONFIG_DIR / filename)
+
+    assert config.custom_source is not None
+    assert config.custom_source.reactor_centers_cm == expected_centers
+    assert not config.detector.enabled
+    assert [layer.thickness_cm for layer in config.geometry.layers] == pytest.approx(
+        [1.4, 1.5, 0.3, 20.0, 0.3, 50.0]
+    )
+    assert [layer.height_cm for layer in config.geometry.layers] == [
+        70.0, 70.0, 70.0, 90.0, 90.0, 100.0
+    ]
+    borated = config.materials["borated_polyethylene"]
+    assert borated.elements == pytest.approx(
+        {"B": 0.0222626, "C": 0.325893, "H": 0.6518444}
+    )
+    assert len(
+        [component for component in config.geometry.components if component.score_spectrum]
+    ) == 4
+
+
 def test_beam_beam_source_rejects_pure_tritium(tmp_path: Path) -> None:
     text = (CONFIG_DIR / "genDD_reactor.yaml").read_text(encoding="utf-8")
     path = tmp_path / "pure_tritium.yaml"

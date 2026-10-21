@@ -39,14 +39,18 @@ class ComponentConfig:
     material: str
     axis: str | None = None
     carve_from_base: bool = True
+    score_spectrum: bool = False
 
     @property
     def half_extents_cm(self) -> tuple[float, float, float]:
         if self.shape == "box":
             size_x, size_y, size_z = self.dimensions_cm
             return size_x / 2, size_y / 2, size_z / 2
+        if self.shape == "cylinder_shell":
+            _, radius, length = self.dimensions_cm
+        else:
+            radius, length = self.dimensions_cm
 
-        radius, length = self.dimensions_cm
         if self.axis == "x":
             return length / 2, radius, radius
         if self.axis == "y":
@@ -62,6 +66,7 @@ class DetectorConfig:
     width_x_cm: float
     width_y_cm: float
     thickness_z_cm: float
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -71,6 +76,7 @@ class GeometryConfig:
     layers: tuple[LayerConfig, ...]
     components: tuple[ComponentConfig, ...]
     world_radius_cm: float
+    background_material: str | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +95,7 @@ class CustomSourceConfig:
     zone_beam_beam: float
     source_strength: float
     neutral_profile: tuple[tuple[float, float], ...]
+    reactor_centers_cm: tuple[tuple[float, float], ...]
 
 
 @dataclass(frozen=True)
@@ -204,7 +211,7 @@ def load_config(path: str | Path) -> SimulationConfig:
     _keys(
         geometry_data,
         {"cavity", "layers", "world_radius_cm"},
-        {"components"},
+        {"components", "background_material"},
         "geometry",
     )
     cavity_data = _mapping(geometry_data["cavity"], "geometry.cavity")
@@ -269,6 +276,11 @@ def load_config(path: str | Path) -> SimulationConfig:
     world_radius = _number(
         geometry_data["world_radius_cm"], "geometry.world_radius_cm", minimum=0, exclusive=True
     )
+    background_material = geometry_data.get("background_material")
+    if background_material is not None and (
+        not isinstance(background_material, str) or not background_material.strip()
+    ):
+        raise ConfigError("geometry.background_material must be a material name")
     outermost = layers[-1]
     if world_radius <= math.hypot(outermost.radius_cm, outermost.height_cm / 2):
         raise ConfigError("geometry.world_radius_cm must enclose the outermost cylinder")
@@ -285,21 +297,26 @@ def load_config(path: str | Path) -> SimulationConfig:
         _keys(
             component_data,
             {"name", "shape", "center_cm", "material"},
-            {"size_cm", "radius_cm", "length_cm", "axis", "carve_from_base"},
+            {"size_cm", "radius_cm", "length_cm", "axis", "carve_from_base", "score_spectrum"},
             component_path,
         )
         name = component_data["name"]
         shape = component_data["shape"]
         material = component_data["material"]
         carve_from_base = component_data.get("carve_from_base", True)
+        score_spectrum = component_data.get("score_spectrum", False)
         if not isinstance(carve_from_base, bool):
             raise ConfigError(f"{component_path}.carve_from_base must be a boolean")
+        if not isinstance(score_spectrum, bool):
+            raise ConfigError(f"{component_path}.score_spectrum must be a boolean")
         if not isinstance(name, str) or not name.strip():
             raise ConfigError(f"{component_path}.name must be a non-empty string")
         if name in names:
             raise ConfigError(f"geometry component name {name!r} is duplicated")
-        if not isinstance(shape, str) or shape not in {"box", "cylinder"}:
-            raise ConfigError(f"{component_path}.shape must be 'box' or 'cylinder'")
+        if not isinstance(shape, str) or shape not in {"box", "cylinder", "cylinder_shell"}:
+            raise ConfigError(
+                f"{component_path}.shape must be 'box', 'cylinder' or 'cylinder_shell'"
+            )
         if not isinstance(material, str) or not material.strip():
             raise ConfigError(f"{component_path}.material must be a non-empty string")
         center_data = component_data["center_cm"]
@@ -314,7 +331,7 @@ def load_config(path: str | Path) -> SimulationConfig:
             _keys(
                 component_data,
                 {"name", "shape", "center_cm", "material", "size_cm"},
-                {"carve_from_base"},
+                {"carve_from_base", "score_spectrum"},
                 component_path,
             )
             size_data = component_data["size_cm"]
@@ -327,10 +344,14 @@ def load_config(path: str | Path) -> SimulationConfig:
             axis = None
             half_extents = tuple(value / 2 for value in dimensions)
         else:
+            shell = shape == "cylinder_shell"
             _keys(
                 component_data,
-                {"name", "shape", "center_cm", "material", "radius_cm", "length_cm"},
-                {"axis", "carve_from_base"},
+                {
+                    "name", "shape", "center_cm", "material", "radius_cm",
+                    "length_cm",
+                } | ({"inner_radius_cm"} if shell else set()),
+                {"axis", "carve_from_base", "score_spectrum"},
                 component_path,
             )
             axis = component_data.get("axis", "z")
@@ -348,7 +369,20 @@ def load_config(path: str | Path) -> SimulationConfig:
                 minimum=0,
                 exclusive=True,
             )
-            dimensions = (radius, length)
+            if shell:
+                inner_radius = _number(
+                    component_data["inner_radius_cm"],
+                    f"{component_path}.inner_radius_cm",
+                    minimum=0,
+                    exclusive=True,
+                )
+                if inner_radius >= radius:
+                    raise ConfigError(
+                        f"{component_path}.inner_radius_cm must be less than radius_cm"
+                    )
+                dimensions = (inner_radius, radius, length)
+            else:
+                dimensions = (radius, length)
             half_extents = tuple(
                 length / 2 if coordinate == axis else radius for coordinate in ("x", "y", "z")
             )
@@ -358,13 +392,15 @@ def load_config(path: str | Path) -> SimulationConfig:
             raise ConfigError(f"{component_path} must fit inside geometry.world_radius_cm")
         components.append(
             ComponentConfig(
-                name, shape, center, dimensions, material, axis, carve_from_base
+                name, shape, center, dimensions, material, axis, carve_from_base,
+                score_spectrum
             )
         )
         names.add(name)
 
     geometry = GeometryConfig(
-        cavity_radius, cavity_height, tuple(layers), tuple(components), world_radius
+        cavity_radius, cavity_height, tuple(layers), tuple(components), world_radius,
+        background_material
     )
 
     materials_data = _mapping(root["materials"], "materials")
@@ -400,7 +436,8 @@ def load_config(path: str | Path) -> SimulationConfig:
     missing_materials = (
         {layer.material for layer in layers}
         | {component.material for component in components}
-    ) - materials.keys()
+        | ({background_material} if background_material is not None else set())
+    ) - materials.keys() - {"void"}
     if missing_materials:
         raise ConfigError(f"undefined geometry materials: {', '.join(sorted(missing_materials))}")
 
@@ -533,7 +570,7 @@ def load_config(path: str | Path) -> SimulationConfig:
     _keys(
         detector_data,
         set(),
-        {"x_cm", "y_cm", "z_cm", "width_x_cm", "width_y_cm", "thickness_z_cm"},
+        {"x_cm", "y_cm", "z_cm", "width_x_cm", "width_y_cm", "thickness_z_cm", "enabled"},
         "detector",
     )
     detector = DetectorConfig(
@@ -558,13 +595,16 @@ def load_config(path: str | Path) -> SimulationConfig:
             minimum=0,
             exclusive=True,
         ),
+        enabled=detector_data.get("enabled", True),
     )
+    if not isinstance(detector.enabled, bool):
+        raise ConfigError("detector.enabled must be a boolean")
     detector_extent = (
         detector.width_x_cm / 2,
         detector.width_y_cm / 2,
         detector.thickness_z_cm / 2,
     )
-    if math.sqrt(
+    if detector.enabled and math.sqrt(
         sum(
             (abs(position) + extent) ** 2
             for position, extent in zip(
@@ -599,7 +639,7 @@ def load_config(path: str | Path) -> SimulationConfig:
                 "source_strength",
                 "neutral_profile",
             },
-            set(),
+            {"reactor_centers_cm"},
             "custom_source",
         )
         cathode_radius = _number(
@@ -696,7 +736,30 @@ def load_config(path: str | Path) -> SimulationConfig:
                 exclusive=True,
             ),
             neutral_profile=profile,
+            reactor_centers_cm=tuple(
+                (
+                    _number(point[0], f"custom_source.reactor_centers_cm[{index}][0]", minimum=-world_radius),
+                    _number(point[1], f"custom_source.reactor_centers_cm[{index}][1]", minimum=-world_radius),
+                )
+                for index, point in enumerate(custom_data.get("reactor_centers_cm", [[0.0, 0.0]]))
+                if isinstance(point, list) and len(point) == 2
+            ),
         )
+        raw_centers = custom_data.get("reactor_centers_cm", [[0.0, 0.0]])
+        if not isinstance(raw_centers, list) or not raw_centers or len(custom_source.reactor_centers_cm) != len(raw_centers):
+            raise ConfigError("custom_source.reactor_centers_cm must contain [x_cm, y_cm] pairs")
+        if any(
+            math.sqrt(
+                (abs(x_cm) + source.radius_cm) ** 2
+                + (abs(y_cm) + source.radius_cm) ** 2
+                + (source.height_cm / 2) ** 2
+            )
+            >= world_radius
+            for x_cm, y_cm in custom_source.reactor_centers_cm
+        ):
+            raise ConfigError(
+                "custom_source reactor source volumes must fit inside geometry.world_radius_cm"
+            )
 
     return SimulationConfig(
         source=source,

@@ -62,6 +62,7 @@ struct Parameters {
   double beam_beam_weight {0.0};
   double source_strength {1.0};
   std::vector<ProfilePoint> neutral_profile {{0.0, 1.0}, {1.0, 1.0}};
+  std::vector<Vec3> reactor_centers {{0.0, 0.0, 0.0}};
 };
 
 double dot(Vec3 a, Vec3 b)
@@ -151,6 +152,25 @@ std::vector<ProfilePoint> parse_profile(const std::string& text)
   return points;
 }
 
+std::vector<Vec3> parse_reactor_centers(const std::string& text)
+{
+  std::vector<Vec3> centers;
+  std::stringstream stream(text);
+  std::string item;
+  while (std::getline(stream, item, '|')) {
+    const auto values = parse_number_list(item);
+    if (values.size() != 2) {
+      throw std::invalid_argument(
+        "reactor_centers_cm entries must be x,y coordinate pairs");
+    }
+    centers.push_back({values[0], values[1], 0.0});
+  }
+  if (centers.empty()) {
+    throw std::invalid_argument("reactor_centers_cm must not be empty");
+  }
+  return centers;
+}
+
 Parameters parse_parameters(const std::string& text)
 {
   Parameters result;
@@ -187,6 +207,7 @@ Parameters parse_parameters(const std::string& text)
     else if (key == "zone_beam_beam") result.beam_beam_weight = read_number();
     else if (key == "source_strength") result.source_strength = read_number();
     else if (key == "neutral_profile") result.neutral_profile = parse_profile(value);
+    else if (key == "reactor_centers_cm") result.reactor_centers = parse_reactor_centers(value);
     else throw std::invalid_argument("Unknown compiled source parameter: " + key);
   }
 
@@ -635,6 +656,10 @@ public:
         continue;
       }
       ++accepted_neutron_branches;
+      const size_t center_index = std::min(
+        static_cast<size_t>(random_unit(seed) * parameters_.reactor_centers.size()),
+        parameters_.reactor_centers.size() - 1);
+      event.position = event.position + parameters_.reactor_centers[center_index];
       return make_neutron_site(seed, event);
     }
     throw std::runtime_error(
