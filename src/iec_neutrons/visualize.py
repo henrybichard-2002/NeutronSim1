@@ -25,8 +25,8 @@ class PlotStyle:
     spatial_cscale: str = "log"
     energy_cscale: str = "log"
     uncertainty_cscale: str = "log"
-    heatmap_min_percentile: float = 2.0
-    heatmap_max_percentile: float = 98.0
+    heatmap_min_percentile: float = 0.1
+    heatmap_max_percentile: float = 99.9
     spectrum_xscale: str = "linear"
     spectrum_yscale: str = "log"
     marginal_xscale: str = "linear"

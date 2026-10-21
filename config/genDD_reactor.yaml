@@ -83,48 +83,17 @@ geometry:
       length_cm: 30.8
       material: helium3_gas
       carve_from_base: false
-    - name: detector_3cm_hdpe
-      shape: cylinder
-      axis: z
-      center_cm: [0.0, 25.0, 0.0]
-      radius_cm: 4.57
-      length_cm: 31.6
-      material: hdpe
-    - name: detector_3cm_lead
-      shape: cylinder
-      axis: z
-      center_cm: [0.0, 25.0, 0.0]
-      radius_cm: 1.57
-      length_cm: 31.6
-      material: lead
-      carve_from_base: false
-    - name: detector_3cm_aluminium_wall
-      shape: cylinder
-      axis: z
-      center_cm: [0.0, 25.0, 0.0]
-      radius_cm: 1.27
-      length_cm: 31.0
-      material: aluminium
-      carve_from_base: false
-    - name: detector_3cm_he3_gas
-      shape: cylinder
-      axis: z
-      center_cm: [0.0, 25.0, 0.0]
-      radius_cm: 1.17
-      length_cm: 30.8
-      material: helium3_gas
-      carve_from_base: false
     - name: detector_4cm_hdpe
       shape: cylinder
       axis: z
-      center_cm: [-25.0, 0.0, 0.0]
+      center_cm: [0.0, 25.0, 0.0]
       radius_cm: 5.57
       length_cm: 31.6
       material: hdpe
     - name: detector_4cm_lead
       shape: cylinder
       axis: z
-      center_cm: [-25.0, 0.0, 0.0]
+      center_cm: [0.0, 25.0, 0.0]
       radius_cm: 1.57
       length_cm: 31.6
       material: lead
@@ -132,7 +101,7 @@ geometry:
     - name: detector_4cm_aluminium_wall
       shape: cylinder
       axis: z
-      center_cm: [-25.0, 0.0, 0.0]
+      center_cm: [0.0, 25.0, 0.0]
       radius_cm: 1.27
       length_cm: 31.0
       material: aluminium
@@ -140,19 +109,50 @@ geometry:
     - name: detector_4cm_he3_gas
       shape: cylinder
       axis: z
+      center_cm: [0.0, 25.0, 0.0]
+      radius_cm: 1.17
+      length_cm: 30.8
+      material: helium3_gas
+      carve_from_base: false
+    - name: detector_6cm_hdpe
+      shape: cylinder
+      axis: z
+      center_cm: [-25.0, 0.0, 0.0]
+      radius_cm: 7.57
+      length_cm: 31.6
+      material: hdpe
+    - name: detector_6cm_lead
+      shape: cylinder
+      axis: z
+      center_cm: [-25.0, 0.0, 0.0]
+      radius_cm: 1.57
+      length_cm: 31.6
+      material: lead
+      carve_from_base: false
+    - name: detector_6cm_aluminium_wall
+      shape: cylinder
+      axis: z
+      center_cm: [-25.0, 0.0, 0.0]
+      radius_cm: 1.27
+      length_cm: 31.0
+      material: aluminium
+      carve_from_base: false
+    - name: detector_6cm_he3_gas
+      shape: cylinder
+      axis: z
       center_cm: [-25.0, 0.0, 0.0]
       radius_cm: 1.17
       length_cm: 30.8
       material: helium3_gas
       carve_from_base: false
-    - name: detector_5cm_hdpe
+    - name: detector_8cm_hdpe
       shape: cylinder
       axis: z
       center_cm: [0.0, -25.0, 0.0]
-      radius_cm: 6.57
+      radius_cm: 9.57
       length_cm: 31.6
       material: hdpe
-    - name: detector_5cm_lead
+    - name: detector_8cm_lead
       shape: cylinder
       axis: z
       center_cm: [0.0, -25.0, 0.0]
@@ -160,7 +160,7 @@ geometry:
       length_cm: 31.6
       material: lead
       carve_from_base: false
-    - name: detector_5cm_aluminium_wall
+    - name: detector_8cm_aluminium_wall
       shape: cylinder
       axis: z
       center_cm: [0.0, -25.0, 0.0]
@@ -168,7 +168,7 @@ geometry:
       length_cm: 31.0
       material: aluminium
       carve_from_base: false
-    - name: detector_5cm_he3_gas
+    - name: detector_8cm_he3_gas
       shape: cylinder
       axis: z
       center_cm: [0.0, -25.0, 0.0]
