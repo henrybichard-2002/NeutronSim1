@@ -330,6 +330,10 @@ the center-of-momentum frame. Bosch-Hale total cross sections do not provide
 differential angular distributions, so this isotropic angular assumption is
 explicit and should not be mistaken for an evaluated angular model.
 
+The rejection sampler uses separate maximum cross sections for D-T and D-D
+events, so the higher D-T cross section does not unnecessarily suppress
+sampling efficiency in a pure-deuterium run.
+
 The C++ defaults are illustrative, not a measured IEC plasma model: a 4.05 cm
 anode radius, 0.73 cm cathode radius, 35 cm source height, 90 keV accelerating
 voltage, 300 K neutral gas, and 50% tritium in the target. Beam-target events

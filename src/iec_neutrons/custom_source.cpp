@@ -284,13 +284,15 @@ double total_cross_section(double energy_kev, bool deuterium_target)
   return bosch_hale_sigma(energy_kev, Reaction::DT_N);
 }
 
-double maximum_fusion_cross_section()
+// Keep channel-specific bounds so the larger DT cross section does not
+// suppress acceptance of DD events in a pure-deuterium source.
+double maximum_fusion_cross_section(bool deuterium_target)
 {
   double maximum = 0.0;
   for (int i = 0; i <= 100000; ++i) {
     const double energy = 0.5 + 0.05 * i;
-    maximum = std::max(maximum, total_cross_section(energy, true));
-    maximum = std::max(maximum, total_cross_section(energy, false));
+    maximum = std::max(
+      maximum, total_cross_section(energy, deuterium_target));
   }
   return maximum * 1.01;
 }
@@ -579,12 +581,13 @@ class IecFusionSource final : public openmc::Source {
 public:
   explicit IecFusionSource(const std::string& parameter_text)
     : parameters_ {parse_parameters(parameter_text)},
-      sigma_max_ {maximum_fusion_cross_section()},
+      sigma_max_dt_ {maximum_fusion_cross_section(false)},
+      sigma_max_dd_ {maximum_fusion_cross_section(true)},
       profile_max_ {maximum_profile_density(
         parameters_, parameters_.cathode_radius_cm /
                        parameters_.anode_radius_cm)}
   {
-    if (!(sigma_max_ > 0.0)) {
+    if (!(sigma_max_dt_ > 0.0 && sigma_max_dd_ > 0.0)) {
       throw std::runtime_error("Bosch-Hale fits produced no positive cross section");
     }
     if (profile_max_ == 0.0 && parameters_.beam_target_weight > 0.0) {
@@ -605,6 +608,10 @@ public:
       !beam_target &&
       choice < parameters_.beam_target_weight +
                  parameters_.beam_wall_weight;
+    const char* zone_name =
+      beam_target ? "beam-target" : beam_wall ? "beam-wall" : "beam-beam";
+    int64_t accepted_fusion_events = 0;
+    int64_t accepted_neutron_branches = 0;
 
     for (int64_t attempt = 0; attempt < 1000000; ++attempt) {
       Event event;
@@ -614,25 +621,35 @@ public:
         event = sample_beam_beam_event(seed, parameters_);
       }
 
-      if (random_unit(seed) >= event_acceptance(
-            event, parameters_, sigma_max_, profile_max_, beam_target)) {
+      const double sigma_max =
+        event.deuterium_deuterium ? sigma_max_dd_ : sigma_max_dt_;
+      const double acceptance = event_acceptance(
+        event, parameters_, sigma_max, profile_max_, beam_target);
+      if (random_unit(seed) >= acceptance) {
         continue;
       }
+      ++accepted_fusion_events;
       // D(d,p)T competes with D(d,n)3He. OpenMC transports only the neutron,
       // so proton-branch events are rejected with the Bosch-Hale branch ratio.
       if (!is_neutron_branch(seed, event)) {
         continue;
       }
+      ++accepted_neutron_branches;
       return make_neutron_site(seed, event);
     }
     throw std::runtime_error(
       "Could not sample a neutron-producing fusion event after 1,000,000 trials; "
-      "check isotope fractions, zone weights, and density profile");
+      "zone=" + std::string(zone_name) +
+      ", accepted fusion events=" + std::to_string(accepted_fusion_events) +
+      ", accepted neutron branches=" +
+      std::to_string(accepted_neutron_branches) +
+      ". Check isotope fractions, zone weights, and density profile");
   }
 
 private:
   Parameters parameters_;
-  double sigma_max_;
+  double sigma_max_dt_;
+  double sigma_max_dd_;
   double profile_max_;
 };
 
