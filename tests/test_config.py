@@ -116,6 +116,27 @@ def test_reactorpath_configs(
     assert config.detector.thickness_z_cm == 0.05
 
 
+def test_gen_dd_reactor_loads_as_pure_deuterium() -> None:
+    config = load_config(CONFIG_DIR / "genDD_reactor.yaml")
+
+    assert config.custom_source is not None
+    assert config.custom_source.tritium_fraction == 0.0
+    assert (
+        config.custom_source.zone_beam_target,
+        config.custom_source.zone_beam_wall,
+        config.custom_source.zone_beam_beam,
+    ) == (1.0, 1.0, 1.0)
+
+
+def test_beam_beam_source_rejects_pure_tritium(tmp_path: Path) -> None:
+    text = (CONFIG_DIR / "genDD_reactor.yaml").read_text(encoding="utf-8")
+    path = tmp_path / "pure_tritium.yaml"
+    path.write_text(text.replace("tritium_fraction: 0.0", "tritium_fraction: 1.0"))
+
+    with pytest.raises(ConfigError, match="zero is valid for pure D-D"):
+        load_config(path)
+
+
 def test_external_he3_detector_example_uses_provisional_components() -> None:
     config = load_config(CONFIG_DIR / "he3_detector.yaml")
 

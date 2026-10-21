@@ -189,6 +189,48 @@ def test_gen_reactor_geometry_and_custom_source_zones() -> None:
     assert len(matching_cylinders) == 3
 
 
+def test_gen_dd_reactor_geometry_and_detector_shields() -> None:
+    pytest.importorskip("openmc")
+    config = load_config(CONFIG_DIR / "genDD_reactor.yaml")
+    model = build_model(config)
+
+    assert config.custom_source is not None
+    assert config.custom_source.tritium_fraction == 0.0
+    assert [layer.thickness_cm for layer in config.geometry.layers] == pytest.approx(
+        [1.4, 1.5, 0.3, 50.0]
+    )
+    components = {item.name: item for item in config.geometry.components}
+    detector_layout = {
+        2: (25.0, 0.0, 0.0),
+        3: (0.0, 25.0, 0.0),
+        4: (-25.0, 0.0, 0.0),
+        5: (0.0, -25.0, 0.0),
+    }
+    for thickness_cm, center in detector_layout.items():
+        prefix = f"detector_{thickness_cm}cm"
+        assert components[f"{prefix}_hdpe"].center_cm == center
+        assert components[f"{prefix}_hdpe"].dimensions_cm == pytest.approx(
+            (1.57 + thickness_cm, 31.6)
+        )
+        assert components[f"{prefix}_lead"].dimensions_cm == pytest.approx(
+            (1.57, 31.6)
+        )
+        assert components[f"{prefix}_aluminium_wall"].dimensions_cm == pytest.approx(
+            (1.27, 31.0)
+        )
+        assert components[f"{prefix}_he3_gas"].dimensions_cm == pytest.approx(
+            (1.17, 30.8)
+        )
+        assert f"he3_neutron_spectrum_{prefix}_he3_gas" in {
+            tally.name for tally in model.tallies
+        }
+        assert f"he3_n_p_spectrum_{prefix}_he3_gas" in {
+            tally.name for tally in model.tallies
+        }
+    assert components["aluminium_cap_top"].center_cm == (0.0, 0.0, 35.7)
+    assert components["aluminium_cap_bottom"].center_cm == (0.0, 0.0, -35.7)
+
+
 def test_world_neutron_leakage_spectrum_uses_outward_surface_current() -> None:
     openmc = pytest.importorskip("openmc")
     model = build_model(load_config(CONFIG_DIR / "gen_reactor.yaml"))

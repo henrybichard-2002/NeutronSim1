@@ -204,9 +204,9 @@ Parameters parse_parameters(const std::string& text)
     throw std::invalid_argument("At least one interaction-zone weight must be positive");
   }
   if (result.beam_beam_weight > 0.0 &&
-      !(result.tritium_fraction > 0.0 && result.tritium_fraction < 1.0)) {
+      !(result.tritium_fraction < 1.0)) {
     throw std::invalid_argument(
-      "Beam-beam mode requires both deuterium and tritium ion fractions");
+      "Beam-beam mode requires deuterium ions; a zero tritium fraction is valid");
   }
   return result;
 }

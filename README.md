@@ -48,7 +48,7 @@ neutron nuclides and thermal-scattering tables used by that configuration:
 | `reactorpath3.yaml` | `config/cross_sections/reactorpath3.xml` |
 | `example.yaml` | `config/cross_sections/example.xml` |
 | `he3_detector.yaml` | `config/cross_sections/he3_detector.xml` |
-| `gen_reactor.yaml` | `config/cross_sections/gen_reactor.xml` |
+| `genDD_reactor.yaml` | `config/cross_sections/genDD_reactor.xml` |
 
 Each index has the same basename as its YAML configuration. Set
 `OPENMC_CROSS_SECTIONS` to the matching index before each run, for example:
@@ -104,11 +104,11 @@ export OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/${CONFIG_STEM}.xml"
 "$OPENMC_ENV/bin/python" -m iec_neutrons.cli run "$CONFIG"
 ```
 
-For the configured D-T/D-D compiled source, use the custom-source runner. The
-`gen_reactor.yaml` configuration includes its source parameters:
+For the pure-deuterium D-D compiled source, use the custom-source runner. The
+`genDD_reactor.yaml` configuration includes its source parameters:
 
 ```sh
-CONFIG=config/gen_reactor.yaml
+CONFIG=config/genDD_reactor.yaml
 CONFIG_STEM="$(basename "$CONFIG" .yaml)"
 export OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/${CONFIG_STEM}.xml"
 "$OPENMC_ENV/bin/python" examples/run_custom_source.py "$CONFIG"
@@ -126,8 +126,8 @@ Plot either kind of run with the same command, using the YAML configuration
 and the exact statepoint path printed by the run:
 
 ```sh
-CONFIG=config/gen_reactor.yaml
-STATEPOINT=runs/gen_reactor-custom-source/statepoint.10.h5
+CONFIG=config/genDD_reactor.yaml
+STATEPOINT=runs/genDD_reactor-custom-source/statepoint.100.h5
 "$OPENMC_ENV/bin/python" -m iec_neutrons.cli plot \
   "$CONFIG" "$STATEPOINT"
 ```
@@ -246,14 +246,14 @@ may be omitted or assigned to an adjacent material. Rendering cost grows
 cubically with this setting, so increase it gradually. XY and XZ transport
 maps remain separate central-plane views.
 
-The `gen_reactor` voxel image removes the +x/−y quarter of the geometry and
+The `genDD_reactor` voxel image removes the +x/−y quarter of the geometry and
 views the model from that side, exposing the cylindrical layers, reactor end
 caps, and detector assemblies. Four vertical detectors are centered 25 cm from
 the reactor axis at +x, +y, −x, and −y, in that order. Each has an outside
 diameter of 25.4 mm and an active height of 310 mm, with a 1 mm aluminium wall
 and end caps enclosing a 23.4 mm diameter × 308 mm He-3 gas volume. Each is
-surrounded by 3 mm of lead and by an HDPE cylinder whose thickness is 10, 11,
-12, or 13 cm respectively; the lead and HDPE cylinders have the same 31.6 cm
+surrounded by 3 mm of lead and by an HDPE cylinder whose thickness is 2, 3, 4,
+or 5 cm respectively; the lead and HDPE cylinders have the same 31.6 cm
 height as the detector assembly, so the shielding thicknesses are radial. The
 He-3 density is the ideal-gas value for 4 bar absolute at 50 °C. The configured
 1300 V bias and nominal
@@ -266,23 +266,23 @@ are centered immediately above and below the 70 cm cavity.
 
 The standard `iec_neutrons.cli run` command uses the YAML `source` block,
 normally the simple cylindrical monoenergetic source. To use the compiled C++
-D-T/D-D source instead, use the custom-source runner shown in the run workflow
-above. `gen_reactor.yaml` is the ready-to-run custom-source configuration. Both
+source, use the custom-source runner shown in the run workflow above.
+`genDD_reactor.yaml` is the ready-to-run pure-deuterium D-D configuration. Both
 run paths produce a statepoint; plot them with the same command and the
 statepoint path printed at the end of either run.
 
 It models an anode/inner-cavity radius of 38 mm (76 mm cavity diameter),
 14 mm aluminium, 15 mm water, 3 mm aluminium, and a 500 mm radial air layer.
 The cavity and first three layers are 70 cm tall; the air cylinder is 100 cm
-tall. Its 35 cm source includes D-T and D-D reactions, with beam-target,
+tall. Its 35 cm source includes D-D reactions only, with beam-target,
 beam-wall (anode/inner cavity wall), and beam-beam zones all enabled. The wall
 sample is placed just inside the anode surface to avoid starting a particle on
 a material boundary; it retains the plugin's applied-voltage beam energy and
 is an idealized wall-impact population, not a self-consistent ion trajectory.
 The three zone weights are equal starting weights, not
 measured or calculated physical reaction-rate fractions; set them from
-device-specific data for a predictive yield model. The 50% tritium fraction
-permits both D-T and D-D channels in the configured source.
+device-specific data for a predictive yield model. The configured tritium
+fraction is zero, so all source zones use deuterium and produce D-D events.
 
 The runner prints a post-run summary with track-length-weighted mean neutron
 energies and highest occupied energy-bin upper edges in each region, a
@@ -321,7 +321,7 @@ The C++ source uses the OpenMC 0.16 compiled-source ABI (`openmc_create_source`)
 and implements the Bosch-Hale total cross sections for T(d,n)4He,
 D(d,n)3He, and D(d,p)T. D-D events are selected using the sum of both branch
 cross sections, and proton-branch events are rejected because this source emits
-only neutrons. The `custom_source` YAML block in `gen_reactor.yaml` sets the
+only neutrons. The `custom_source` YAML block in `genDD_reactor.yaml` sets the
 plugin's reaction-zone weights, potential, neutral temperature, isotope
 fraction, and radial neutral-density profile. An explicit `--parameters`
 argument overrides those values. Two-body product energies and directions are calculated from

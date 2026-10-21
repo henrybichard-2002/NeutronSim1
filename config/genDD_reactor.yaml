@@ -1,0 +1,250 @@
+# IEC source and radial layers; lengths are cm unless thickness_mm is used.
+# Cylindrical detector operating point: 4 bar He-3 at 50 C, 1300 V bias,
+# nominal response 50 cps/(n/cm^2/s). Bias and response do not alter transport.
+source:
+  radius_cm: 3.8
+  height_cm: 35.0
+  energy_mev: 2.45
+
+custom_source:
+  # A zero tritium fraction gives a pure-deuterium target and D-D reactions.
+  cathode_radius_cm: 0.73
+  voltage_kev: 90.0
+  neutral_temperature_k: 300.0
+  tritium_fraction: 0.0
+  zone_beam_target: 1.0
+  zone_beam_wall: 1.0
+  zone_beam_beam: 1.0
+  source_strength: 1.0
+  neutral_profile:
+    - [0.0, 1.0]
+    - [1.0, 1.0]
+
+detector:
+  x_cm: 20.0
+  y_cm: 0.0
+  z_cm: 0.0
+  width_x_cm: 0.4
+  width_y_cm: 0.4
+  thickness_z_cm: 0.05
+
+geometry:
+  cavity:
+    radius_cm: 3.8
+    height_cm: 70.0
+  layers:
+    - name: aluminium_1
+      thickness_mm: 14.0
+      height_cm: 70.0
+      material: aluminium
+    - name: water_1
+      thickness_mm: 15.0
+      height_cm: 70.0
+      material: water
+    - name: aluminium_2
+      thickness_mm: 3.0
+      height_cm: 70.0
+      material: aluminium
+    - name: air_1
+      thickness_mm: 500.0
+      height_cm: 100.0
+      material: air
+  # The four vertical He-3 detectors share a 25 cm center radius. HDPE
+  # thicknesses clockwise from +x are 2, 3, 4, and 5 cm.
+  components:
+    - name: detector_2cm_hdpe
+      shape: cylinder
+      axis: z
+      center_cm: [25.0, 0.0, 0.0]
+      radius_cm: 3.57
+      length_cm: 31.6
+      material: hdpe
+    - name: detector_2cm_lead
+      shape: cylinder
+      axis: z
+      center_cm: [25.0, 0.0, 0.0]
+      radius_cm: 1.57
+      length_cm: 31.6
+      material: lead
+      carve_from_base: false
+    - name: detector_2cm_aluminium_wall
+      shape: cylinder
+      axis: z
+      center_cm: [25.0, 0.0, 0.0]
+      radius_cm: 1.27
+      length_cm: 31.0
+      material: aluminium
+      carve_from_base: false
+    - name: detector_2cm_he3_gas
+      shape: cylinder
+      axis: z
+      center_cm: [25.0, 0.0, 0.0]
+      radius_cm: 1.17
+      length_cm: 30.8
+      material: helium3_gas
+      carve_from_base: false
+    - name: detector_3cm_hdpe
+      shape: cylinder
+      axis: z
+      center_cm: [0.0, 25.0, 0.0]
+      radius_cm: 4.57
+      length_cm: 31.6
+      material: hdpe
+    - name: detector_3cm_lead
+      shape: cylinder
+      axis: z
+      center_cm: [0.0, 25.0, 0.0]
+      radius_cm: 1.57
+      length_cm: 31.6
+      material: lead
+      carve_from_base: false
+    - name: detector_3cm_aluminium_wall
+      shape: cylinder
+      axis: z
+      center_cm: [0.0, 25.0, 0.0]
+      radius_cm: 1.27
+      length_cm: 31.0
+      material: aluminium
+      carve_from_base: false
+    - name: detector_3cm_he3_gas
+      shape: cylinder
+      axis: z
+      center_cm: [0.0, 25.0, 0.0]
+      radius_cm: 1.17
+      length_cm: 30.8
+      material: helium3_gas
+      carve_from_base: false
+    - name: detector_4cm_hdpe
+      shape: cylinder
+      axis: z
+      center_cm: [-25.0, 0.0, 0.0]
+      radius_cm: 5.57
+      length_cm: 31.6
+      material: hdpe
+    - name: detector_4cm_lead
+      shape: cylinder
+      axis: z
+      center_cm: [-25.0, 0.0, 0.0]
+      radius_cm: 1.57
+      length_cm: 31.6
+      material: lead
+      carve_from_base: false
+    - name: detector_4cm_aluminium_wall
+      shape: cylinder
+      axis: z
+      center_cm: [-25.0, 0.0, 0.0]
+      radius_cm: 1.27
+      length_cm: 31.0
+      material: aluminium
+      carve_from_base: false
+    - name: detector_4cm_he3_gas
+      shape: cylinder
+      axis: z
+      center_cm: [-25.0, 0.0, 0.0]
+      radius_cm: 1.17
+      length_cm: 30.8
+      material: helium3_gas
+      carve_from_base: false
+    - name: detector_5cm_hdpe
+      shape: cylinder
+      axis: z
+      center_cm: [0.0, -25.0, 0.0]
+      radius_cm: 6.57
+      length_cm: 31.6
+      material: hdpe
+    - name: detector_5cm_lead
+      shape: cylinder
+      axis: z
+      center_cm: [0.0, -25.0, 0.0]
+      radius_cm: 1.57
+      length_cm: 31.6
+      material: lead
+      carve_from_base: false
+    - name: detector_5cm_aluminium_wall
+      shape: cylinder
+      axis: z
+      center_cm: [0.0, -25.0, 0.0]
+      radius_cm: 1.27
+      length_cm: 31.0
+      material: aluminium
+      carve_from_base: false
+    - name: detector_5cm_he3_gas
+      shape: cylinder
+      axis: z
+      center_cm: [0.0, -25.0, 0.0]
+      radius_cm: 1.17
+      length_cm: 30.8
+      material: helium3_gas
+      carve_from_base: false
+    - name: aluminium_cap_top
+      shape: cylinder
+      axis: z
+      center_cm: [0.0, 0.0, 35.7]
+      radius_cm: 3.8
+      length_cm: 1.4
+      material: aluminium
+    - name: aluminium_cap_bottom
+      shape: cylinder
+      axis: z
+      center_cm: [0.0, 0.0, -35.7]
+      radius_cm: 3.8
+      length_cm: 1.4
+      material: aluminium
+  world_radius_cm: 80.0
+
+materials:
+  air:
+    density_g_cm3: 0.001225
+    elements:
+      N: 0.78084
+      O: 0.20946
+      Ar: 0.00934
+      C: 0.00036
+  aluminium:
+    density_g_cm3: 2.70
+    elements:
+      Al: 1
+  water:
+    density_g_cm3: 1.0
+    elements:
+      H: 2
+      O: 1
+    thermal_scattering:
+      - c_H_in_H2O
+  hdpe:
+    density_g_cm3: 0.94
+    elements:
+      C: 1
+      H: 2
+    thermal_scattering:
+      - c_H_in_CH2
+  lead:
+    density_g_cm3: 11.34
+    elements:
+      Pb: 1
+  helium3_gas:
+    # Ideal-gas density at 4 bar absolute and 50 C.
+    density_g_cm3: 0.000449
+    nuclides:
+      He3: 1
+
+settings:
+  particles: 10000
+  batches: 100
+  inactive: 0
+  seed: 12345
+
+tally:
+  # The source is D-D; retain a broad range for downscatter and reaction tails.
+  energy_min_mev: 0.0
+  energy_max_mev: 20.0
+  energy_bin_width_mev: 0.1
+
+visualization:
+  mesh_bins: 256
+  voxel_bins: 128
+  slice_thickness_cm: 0.4
+  energy_bins_mev: [0.0, 0.1, 0.5, 1.0, 2.0, 2.3, 2.45, 2.6, 3.0, 5.0]
+  marginal_x_cm: 20.0
+  marginal_y_cm: 0.0
+  marginal_z_cm: 0.0

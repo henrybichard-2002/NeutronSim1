@@ -612,10 +612,10 @@ def load_config(path: str | Path) -> SimulationConfig:
         }
         if not any(zone_weights.values()):
             raise ConfigError("custom_source must enable at least one reaction zone")
-        if zone_weights["zone_beam_beam"] > 0 and tritium_fraction in (0, 1):
+        if zone_weights["zone_beam_beam"] > 0 and tritium_fraction >= 1:
             raise ConfigError(
-                "custom_source.tritium_fraction must be between 0 and 1 when "
-                "the beam-beam zone is enabled"
+                "custom_source.tritium_fraction must be less than 1 when "
+                "the beam-beam zone is enabled; zero is valid for pure D-D"
             )
         raw_profile = custom_data["neutral_profile"]
         if not isinstance(raw_profile, list) or len(raw_profile) < 2:
