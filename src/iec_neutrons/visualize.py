@@ -357,33 +357,33 @@ def plot_results(
             )
         for component in config.geometry.components:
             if not component.score_spectrum:
-            continue
+                continue
             survey_tally = statepoint.get_tally(
-            name=f"survey_spectrum_{component.name}"
+                name=f"survey_spectrum_{component.name}"
             )
             energy_filter = next(
-            (
-                item
-                for item in survey_tally.filters
-                if isinstance(item, openmc.EnergyFilter)
-            ),
-            None,
+                (
+                    item
+                    for item in survey_tally.filters
+                    if isinstance(item, openmc.EnergyFilter)
+                ),
+                None,
             )
             if energy_filter is None:
-            raise ValueError(
-                f"Survey spectrum tally for {component.name!r} has no energy filter"
-            )
+                raise ValueError(
+                    f"Survey spectrum tally for {component.name!r} has no energy filter"
+                )
             bins_ev = np.asarray(energy_filter.bins, dtype=float)
             edges_mev = np.concatenate((bins_ev[:1, 0], bins_ev[:, 1])) / 1.0e6
             if component.shape == "box":
-            volume_cm3 = float(np.prod(component.dimensions_cm))
+                volume_cm3 = float(np.prod(component.dimensions_cm))
             else:
-            component_radius_cm, component_length_cm = component.dimensions_cm
-            volume_cm3 = np.pi * component_radius_cm**2 * component_length_cm
+                component_radius_cm, component_length_cm = component.dimensions_cm
+                volume_cm3 = np.pi * component_radius_cm**2 * component_length_cm
             values = _spectrum_values(survey_tally, np)
             survey_spectra[component.name] = (
-            edges_mev,
-            values / volume_cm3 / np.diff(edges_mev),
+                edges_mev,
+                values / volume_cm3 / np.diff(edges_mev),
             )
         detector_available = "detector_energy_spectrum" in available_names
         detector_mean = None
@@ -1158,6 +1158,8 @@ def _add_dotted_contours(axis, data, extent, np) -> None:
 
 
 def _detector_overlay(axis, config: SimulationConfig, view: str, Rectangle) -> None:
+    if not config.detector.enabled:
+        return
     detector = config.detector
     if view == "xy":
         x, y = detector.x_cm, detector.y_cm
@@ -1401,14 +1403,15 @@ def _plot_marginals(
     axes[0].set_xlabel("x (cm)")
     axes[0].set_ylabel("Flux (cm$^{-2}$ per source neutron)")
     axes[0].set_title(f"x profile {first_description}")
-    axes[0].axvline(
-        config.detector.x_cm,
-        color="magenta",
-        linestyle=":",
-        linewidth=1,
-        label="detector x",
-    )
-    axes[0].legend(fontsize="small")
+    if config.detector.enabled:
+        axes[0].axvline(
+            config.detector.x_cm,
+            color="magenta",
+            linestyle=":",
+            linewidth=1,
+            label="detector x",
+        )
+        axes[0].legend(fontsize="small")
     axes[0].grid(True, which="both", alpha=0.25)
     axes[1].plot(vertical_centers, second_values, color="tab:orange")
     axes[1].set_xlim(*(style.ylim if view == "xy" and style.ylim else
@@ -1421,14 +1424,15 @@ def _plot_marginals(
     axes[1].set_xlabel(second_axis_label)
     axes[1].set_ylabel("Flux (cm$^{-2}$ per source neutron)")
     axes[1].set_title(f"{second_axis_label[0]} profile {second_description}")
-    axes[1].axvline(
-        config.detector.y_cm if view == "xy" else config.detector.z_cm,
-        color="magenta",
-        linestyle=":",
-        linewidth=1,
-        label=f"detector {second_axis_label[0]}",
-    )
-    axes[1].legend(fontsize="small")
+    if config.detector.enabled:
+        axes[1].axvline(
+            config.detector.y_cm if view == "xy" else config.detector.z_cm,
+            color="magenta",
+            linestyle=":",
+            linewidth=1,
+            label=f"detector {second_axis_label[0]}",
+        )
+        axes[1].legend(fontsize="small")
     axes[1].grid(True, which="both", alpha=0.25)
     figure.suptitle(f"{'XY' if view == 'xy' else 'XZ'} flux line profiles")
     figure.savefig(str(path), dpi=180)

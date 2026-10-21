@@ -49,10 +49,7 @@ def build_model(config: SimulationConfig):
                 & -openmc.ZPlane(z0=center_z + size_z / 2)
             )
 
-        if component.shape == "cylinder_shell":
-            inner_radius_cm, radius_cm, length_cm = component.dimensions_cm
-        else:
-            radius_cm, length_cm = component.dimensions_cm
+        radius_cm, length_cm = component.dimensions_cm
         axis = component.axis
         if axis == "x":
             surface = openmc.XCylinder(y0=center_y, z0=center_z, r=radius_cm)
@@ -66,22 +63,7 @@ def build_model(config: SimulationConfig):
             surface = openmc.ZCylinder(x0=center_x, y0=center_y, r=radius_cm)
             lower = openmc.ZPlane(z0=center_z - length_cm / 2)
             upper = openmc.ZPlane(z0=center_z + length_cm / 2)
-        region = -surface & +lower & -upper
-        if component.shape == "cylinder_shell":
-            if axis == "x":
-                inner_surface = openmc.XCylinder(
-                    y0=center_y, z0=center_z, r=inner_radius_cm
-                )
-            elif axis == "y":
-                inner_surface = openmc.YCylinder(
-                    x0=center_x, z0=center_z, r=inner_radius_cm
-                )
-            else:
-                inner_surface = openmc.ZCylinder(
-                    x0=center_x, y0=center_y, r=inner_radius_cm
-                )
-            region &= +inner_surface
-        return region
+        return -surface & +lower & -upper
 
     def union(regions):
         combined = regions[0]

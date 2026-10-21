@@ -196,10 +196,8 @@ low-value outliers from compressing the displayed color range.
 ## External assemblies and interaction tallies
 
 `geometry.components` configures finite components beyond or within the radial
-layers. Supported shapes are axis-aligned boxes (`size_cm: [x, y, z]`),
-cylinders (`radius_cm`, `length_cm`, and `axis: x|y|z`), and annular
-`cylinder_shell` components (`inner_radius_cm`, `radius_cm`, and `length_cm`),
-each located by
+layers. Supported shapes are axis-aligned boxes (`size_cm: [x, y, z]`) and
+cylinders (`radius_cm`, `length_cm`, and `axis: x|y|z`), each located by
 `center_cm: [x, y, z]`. Components carve their volume out of the reactor
 materials by default. For nested assemblies, set `carve_from_base: false` on
 inner components that are fully contained inside an outer component which

@@ -46,11 +46,7 @@ class ComponentConfig:
         if self.shape == "box":
             size_x, size_y, size_z = self.dimensions_cm
             return size_x / 2, size_y / 2, size_z / 2
-        if self.shape == "cylinder_shell":
-            _, radius, length = self.dimensions_cm
-        else:
-            radius, length = self.dimensions_cm
-
+        radius, length = self.dimensions_cm
         if self.axis == "x":
             return length / 2, radius, radius
         if self.axis == "y":
@@ -313,10 +309,8 @@ def load_config(path: str | Path) -> SimulationConfig:
             raise ConfigError(f"{component_path}.name must be a non-empty string")
         if name in names:
             raise ConfigError(f"geometry component name {name!r} is duplicated")
-        if not isinstance(shape, str) or shape not in {"box", "cylinder", "cylinder_shell"}:
-            raise ConfigError(
-                f"{component_path}.shape must be 'box', 'cylinder' or 'cylinder_shell'"
-            )
+        if not isinstance(shape, str) or shape not in {"box", "cylinder"}:
+            raise ConfigError(f"{component_path}.shape must be 'box' or 'cylinder'")
         if not isinstance(material, str) or not material.strip():
             raise ConfigError(f"{component_path}.material must be a non-empty string")
         center_data = component_data["center_cm"]
@@ -344,13 +338,9 @@ def load_config(path: str | Path) -> SimulationConfig:
             axis = None
             half_extents = tuple(value / 2 for value in dimensions)
         else:
-            shell = shape == "cylinder_shell"
             _keys(
                 component_data,
-                {
-                    "name", "shape", "center_cm", "material", "radius_cm",
-                    "length_cm",
-                } | ({"inner_radius_cm"} if shell else set()),
+                {"name", "shape", "center_cm", "material", "radius_cm", "length_cm"},
                 {"axis", "carve_from_base", "score_spectrum"},
                 component_path,
             )
@@ -369,20 +359,7 @@ def load_config(path: str | Path) -> SimulationConfig:
                 minimum=0,
                 exclusive=True,
             )
-            if shell:
-                inner_radius = _number(
-                    component_data["inner_radius_cm"],
-                    f"{component_path}.inner_radius_cm",
-                    minimum=0,
-                    exclusive=True,
-                )
-                if inner_radius >= radius:
-                    raise ConfigError(
-                        f"{component_path}.inner_radius_cm must be less than radius_cm"
-                    )
-                dimensions = (inner_radius, radius, length)
-            else:
-                dimensions = (radius, length)
+            dimensions = (radius, length)
             half_extents = tuple(
                 length / 2 if coordinate == axis else radius for coordinate in ("x", "y", "z")
             )
