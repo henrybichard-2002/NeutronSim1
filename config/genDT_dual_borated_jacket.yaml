@@ -45,8 +45,12 @@ geometry:
       thickness_mm: 3.0
       height_cm: 70.0
       material: aluminium
+    - name: hdpe_jacket
+      thickness_mm: 150.0
+      height_cm: 90.0
+      material: hdpe
     - name: borated_polyethylene_jacket
-      thickness_mm: 200.0
+      thickness_mm: 50.0
       height_cm: 90.0
       material: borated_polyethylene
     - name: lead_jacket
@@ -60,9 +64,13 @@ geometry:
   components:
     - name: jacket_1_gap
       shape: box
-      center_cm: [17.15, 0.0, 0.0]
-      size_cm: [20.3, 14.0, 90.0]
+      center_cm: [13.65, 0.0, 0.0]
+      size_cm: [27.3, 14.0, 90.0]
       material: air
+      carve_from_layers:
+        - hdpe_jacket
+        - borated_polyethylene_jacket
+        - lead_jacket
     - name: aluminium_cap_top
       shape: cylinder
       center_cm: [0.0, 0.0, 35.7]
@@ -88,6 +96,12 @@ geometry:
       radius_cm: 27.0
       length_cm: 90.0
       material: borated_polyethylene
+    - name: reactor_2_hdpe
+      shape: cylinder
+      center_cm: [100.0, 0.0, 0.0]
+      radius_cm: 22.0
+      length_cm: 90.0
+      material: hdpe
     - name: reactor_2_aluminium_2
       shape: cylinder
       center_cm: [100.0, 0.0, 0.0]
@@ -126,9 +140,13 @@ geometry:
       material: aluminium
     - name: jacket_2_gap
       shape: box
-      center_cm: [82.85, 0.0, 0.0]
-      size_cm: [20.3, 14.0, 90.0]
+      center_cm: [86.35, 0.0, 0.0]
+      size_cm: [27.3, 14.0, 90.0]
       material: air
+      carve_from_components:
+        - reactor_2_hdpe
+        - reactor_2_borated_polyethylene
+        - reactor_2_lead
     # These four survey volumes stay fixed relative to reactor 1.
     - name: spectrum_gap_aligned
       shape: cylinder
@@ -178,6 +196,12 @@ materials:
       H: 2
       O: 1
     thermal_scattering: [c_H_in_H2O]
+  hdpe:
+    density_g_cm3: 0.94
+    elements:
+      C: 1
+      H: 2
+    thermal_scattering: [c_H_in_CH2]
   borated_polyethylene:
     # 5 wt% natural boron, 95 wt% polyethylene; atom fractions below.
     density_g_cm3: 0.94

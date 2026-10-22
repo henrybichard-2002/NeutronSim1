@@ -43,8 +43,12 @@ geometry:
       thickness_mm: 3.0
       height_cm: 70.0
       material: aluminium
+    - name: hdpe_jacket
+      thickness_mm: 150.0
+      height_cm: 90.0
+      material: hdpe
     - name: borated_polyethylene_jacket
-      thickness_mm: 200.0
+      thickness_mm: 50.0
       height_cm: 90.0
       material: borated_polyethylene
     - name: lead_jacket
@@ -58,9 +62,13 @@ geometry:
   components:
     - name: jacket_gap
       shape: box
-      center_cm: [17.15, 0.0, 0.0]
-      size_cm: [20.3, 14.0, 90.0]
+      center_cm: [13.65, 0.0, 0.0]
+      size_cm: [27.3, 14.0, 90.0]
       material: air
+      carve_from_layers:
+        - hdpe_jacket
+        - borated_polyethylene_jacket
+        - lead_jacket
     - name: aluminium_cap_top
       shape: cylinder
       center_cm: [0.0, 0.0, 35.7]
@@ -121,6 +129,12 @@ materials:
       H: 2
       O: 1
     thermal_scattering: [c_H_in_H2O]
+  hdpe:
+    density_g_cm3: 0.94
+    elements:
+      C: 1
+      H: 2
+    thermal_scattering: [c_H_in_CH2]
   borated_polyethylene:
     # 5 wt% natural boron, 95 wt% polyethylene; atom fractions below.
     density_g_cm3: 0.94

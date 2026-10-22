@@ -155,11 +155,34 @@ def test_borated_jacket_configurations(
     assert config.custom_source.reactor_centers_cm == expected_centers
     assert not config.detector.enabled
     assert [layer.thickness_cm for layer in config.geometry.layers] == pytest.approx(
-        [1.4, 1.5, 0.3, 20.0, 0.3, 50.0]
+        [1.4, 1.5, 0.3, 15.0, 5.0, 0.3, 50.0]
     )
     assert [layer.height_cm for layer in config.geometry.layers] == [
-        70.0, 70.0, 70.0, 90.0, 90.0, 100.0
+        70.0, 70.0, 70.0, 90.0, 90.0, 90.0, 100.0
     ]
+    assert [layer.material for layer in config.geometry.layers[3:6]] == [
+        "hdpe", "borated_polyethylene", "lead"
+    ]
+    gap = next(
+        component for component in config.geometry.components
+        if component.name in {"jacket_gap", "jacket_1_gap"}
+    )
+    assert gap.center_cm[0] == pytest.approx(13.65)
+    assert gap.dimensions_cm == pytest.approx((27.3, 14.0, 90.0))
+    assert gap.carve_from_layers == (
+        "hdpe_jacket", "borated_polyethylene_jacket", "lead_jacket"
+    )
+    if filename == "genDT_dual_borated_jacket.yaml":
+        second_gap = next(
+            component for component in config.geometry.components
+            if component.name == "jacket_2_gap"
+        )
+        assert second_gap.center_cm[0] == pytest.approx(86.35)
+        assert second_gap.carve_from_components == (
+            "reactor_2_hdpe",
+            "reactor_2_borated_polyethylene",
+            "reactor_2_lead",
+        )
     borated = config.materials["borated_polyethylene"]
     assert borated.elements == pytest.approx(
         {"B": 0.0222626, "C": 0.325893, "H": 0.6518444}

@@ -74,14 +74,18 @@ def build_model(config: SimulationConfig):
     component_regions = [
         component_region(component) for component in config.geometry.components
     ]
-    base_cutouts = [
+    global_component_regions = [
         region
         for component, region in zip(
             config.geometry.components, component_regions, strict=True
         )
         if component.carve_from_base
+        and not component.carve_from_layers
+        and not component.carve_from_components
     ]
-    component_union = union(base_cutouts) if base_cutouts else None
+    global_component_union = (
+        union(global_component_regions) if global_component_regions else None
+    )
     cavity_cylinder = openmc.ZCylinder(r=config.geometry.cavity_radius_cm)
     cavity_region = cylinder_region(
         config.geometry.cavity_radius_cm,
@@ -97,12 +101,12 @@ def build_model(config: SimulationConfig):
     source_region = cylinder_region(
         config.source.radius_cm, config.source.height_cm, source_cylinder
     )
-    if component_union is not None:
-        source_region &= ~component_union
+    if global_component_union is not None:
+        source_region &= ~global_component_union
     source_cell = openmc.Cell(name="source volume", region=source_region)
     cavity_cell_region = cavity_region & ~source_region
-    if component_union is not None:
-        cavity_cell_region &= ~component_union
+    if global_component_union is not None:
+        cavity_cell_region &= ~global_component_union
     cavity_cell = openmc.Cell(
         name="source cavity outside source volume",
         region=cavity_cell_region,
@@ -113,11 +117,20 @@ def build_model(config: SimulationConfig):
         ("source", source_cell),
         ("source_cavity", cavity_cell),
     ]
+    layer_regions = {}
     for layer in config.geometry.layers:
         layer_region = cylinder_region(layer.radius_cm, layer.height_cm)
         layer_cell_region = layer_region & ~previous_region
-        if component_union is not None:
-            layer_cell_region &= ~component_union
+        layer_regions[layer.name] = layer_cell_region
+        if global_component_union is not None:
+            layer_cell_region = layer_cell_region & ~global_component_union
+        layer_specific_cutouts = [
+            component_regions[index]
+            for index, component in enumerate(config.geometry.components)
+            if layer.name in component.carve_from_layers
+        ]
+        if layer_specific_cutouts:
+            layer_cell_region = layer_cell_region & ~union(layer_specific_cutouts)
         cell = openmc.Cell(
             name=layer.name,
             fill=materials[layer.material],
@@ -130,10 +143,41 @@ def build_model(config: SimulationConfig):
     boundary = openmc.Sphere(r=config.geometry.world_radius_cm, boundary_type="vacuum")
     material_cells = list(tally_cells[2:])
     component_cells = {}
+    scoped_component_indices = {
+        index
+        for index, component in enumerate(config.geometry.components)
+        if component.carve_from_layers or component.carve_from_components
+    }
+    component_scopes = list(component_regions)
     for index, component in enumerate(config.geometry.components):
-        region = component_regions[index]
-        if index + 1 < len(component_regions):
-            region &= ~union(component_regions[index + 1 :])
+        if component.carve_from_layers:
+            target_regions = [
+                layer_regions[name] for name in component.carve_from_layers
+            ]
+            component_scopes[index] = component_scopes[index] & union(target_regions)
+        elif component.carve_from_components:
+            target_regions = []
+            for target_name in component.carve_from_components:
+                target_index = next(
+                    i for i, target in enumerate(config.geometry.components)
+                    if target.name == target_name
+                )
+                later_material_regions = [
+                    component_regions[later_index]
+                    for later_index in range(target_index + 1, len(component_regions))
+                    if later_index not in scoped_component_indices
+                ]
+                target_region = component_regions[target_index]
+                if later_material_regions:
+                    target_region = target_region & ~union(later_material_regions)
+                target_regions.append(target_region)
+            component_scopes[index] = component_scopes[index] & union(target_regions)
+
+    for index, component in enumerate(config.geometry.components):
+        region = component_scopes[index]
+        later_component_regions = component_scopes[index + 1 :]
+        if later_component_regions:
+            region &= ~union(later_component_regions)
         cell = openmc.Cell(
             name=component.name,
             fill=None if component.material == "void" else materials[component.material],
@@ -146,8 +190,8 @@ def build_model(config: SimulationConfig):
         component_cells[component.name] = cell
 
     external_region = -boundary & ~previous_region
-    if component_union is not None:
-        external_region &= ~component_union
+    if global_component_union is not None:
+        external_region &= ~global_component_union
     background_fill = (
         materials[config.geometry.background_material]
         if config.geometry.background_material is not None

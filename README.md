@@ -220,20 +220,27 @@ boundary.
 use the D-T custom source and the same 70 cm tall reactor vessel as
 `genDT_reactor`: 14 mm aluminium, 15 mm water, and 3 mm aluminium around the
 3.8 cm-radius cavity, including aluminium end caps. Each jacket is 90 cm tall
-(10 cm beyond the vessel at each end), with 20 cm of borated polyethylene and
-3 mm of lead. The polyethylene recipe is 5 wt% natural boron and 95 wt%
-polyethylene at 0.94 g/cm3; the YAML element amounts are normalized atom
-fractions. The 14 cm-wide slot runs radially through both jacket layers for
-their full height. The single jacket opens toward +x. The dual configuration
-places reactor centers 100 cm apart and points the openings toward each other;
+(10 cm beyond the vessel at each end), with 15 cm of HDPE, then 5 cm of
+5 wt% natural-boron polyethylene, followed by 3 mm of lead. Both polymer
+materials use a density of 0.94 g/cm3; the BPE recipe is 5 wt% natural boron
+and 95 wt% polyethylene, represented by normalized atom fractions in YAML.
+The 14 cm-wide opening extends radially from the jacket's outer edge to the
+reactor axis and spans the jacket's full height. Its cut is restricted to the
+jacket materials: the cavity, vessel, and other reactor volume remain intact.
+Consequently, a neutron traveling on the +x axis passes through no jacket
+material, while still traversing the reactor's own vessel layers. The single
+jacket opens toward +x. The dual configuration places reactor centers 100 cm
+apart and points the openings toward each other; each opening reaches its
+reactor's axis.
 the compiled source samples the two identical reactor centers with equal
 probability. The four spectrum scoring cylinders remain fixed relative to
 reactor 1: at 50 cm radius in the gap direction, opposite the gap, and at
 either side of the gap-aligned position, each offset by 5 cm in y. Their active
 dimensions match the previous He-3 gas volume (2.34 cm diameter by 30.8 cm
 high), but these are virtual air-filled scoring regions, not He-3 detectors.
-Plotting writes `survey_region_neutron_spectra.png` with fine-energy spectra
-for the four regions.
+Plotting writes `survey_region_neutron_spectra.png`: the main plot shows 1–16
+MeV on a linear energy axis, with a sub-MeV inset using a logarithmic energy
+axis to expose the lower-energy spectrum.
 
 Run either configuration with its matching cross-section index and the
 compiled custom-source runner:

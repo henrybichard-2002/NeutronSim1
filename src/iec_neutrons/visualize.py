@@ -1450,16 +1450,49 @@ def _plot_marginals(
 
 def _plot_survey_spectra(spectra, path, plt, np) -> Path:
     figure, axis = plt.subplots(figsize=(10, 6), constrained_layout=True)
-    for name, (edges, values) in spectra.items():
-        axis.stairs(values[1:], edges[1:], label=name, linewidth=1.6)
-    axis.set_xscale("log")
-    axis.set_yscale("log")
+    inset = axis.inset_axes([0.08, 0.54, 0.4, 0.4])
+    main_values = []
+    inset_values = []
+    colors = plt.get_cmap("tab10")
+    for index, (name, (edges, values)) in enumerate(spectra.items()):
+        color = colors(index % 10)
+        main_start = int(np.searchsorted(edges, 1.0, side="left"))
+        main_end = int(np.searchsorted(edges, 16.0, side="left"))
+        main_slice = values[main_start:main_end]
+        axis.stairs(
+            main_slice,
+            edges[main_start : main_end + 1],
+            label=name,
+            linewidth=1.6,
+            color=color,
+        )
+        main_values.append(main_slice)
+
+        inset_end = int(np.searchsorted(edges, 1.0, side="right")) - 1
+        low_energy_slice = values[1:inset_end]
+        inset.stairs(
+            low_energy_slice,
+            edges[1 : inset_end + 1],
+            linewidth=1.2,
+            color=color,
+        )
+        inset_values.append(low_energy_slice)
+    axis.set_xscale("linear")
+    _set_spectrum_yscale(axis, main_values, "log", np)
     axis.set_xlabel("Neutron energy (MeV)")
     axis.set_ylabel("Track length density (cm$^{-2}$ per source neutron per MeV)")
+    axis.set_xlim(1.0, 16.0)
     axis.set_title("Neutron spectra at the four fixed survey regions")
     axis.grid(True, which="both", alpha=0.25)
     axis.legend()
-    if not any(np.any(values[1:] > 0) for _, values in spectra.values()):
+    inset.set_xscale("log")
+    inset.set_xlim(edges[1], 1.0)
+    _set_spectrum_yscale(inset, inset_values, "log", np)
+    inset.set_title("Below 1 MeV (log energy)", fontsize=8)
+    inset.set_xlabel("Neutron energy (MeV)", fontsize=7)
+    inset.tick_params(axis="both", labelsize=7)
+    inset.grid(True, which="both", alpha=0.25)
+    if not any(np.any(values > 0) for values in [*main_values, *inset_values]):
         axis.text(
             0.5, 0.5, "No positive tally values", transform=axis.transAxes,
             ha="center", va="center"

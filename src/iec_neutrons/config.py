@@ -40,6 +40,8 @@ class ComponentConfig:
     axis: str | None = None
     carve_from_base: bool = True
     score_spectrum: bool = False
+    carve_from_layers: tuple[str, ...] = ()
+    carve_from_components: tuple[str, ...] = ()
 
     @property
     def half_extents_cm(self) -> tuple[float, float, float]:
@@ -293,7 +295,10 @@ def load_config(path: str | Path) -> SimulationConfig:
         _keys(
             component_data,
             {"name", "shape", "center_cm", "material"},
-            {"size_cm", "radius_cm", "length_cm", "axis", "carve_from_base", "score_spectrum"},
+            {
+                "size_cm", "radius_cm", "length_cm", "axis", "carve_from_base",
+                "score_spectrum", "carve_from_layers", "carve_from_components",
+            },
             component_path,
         )
         name = component_data["name"]
@@ -301,10 +306,29 @@ def load_config(path: str | Path) -> SimulationConfig:
         material = component_data["material"]
         carve_from_base = component_data.get("carve_from_base", True)
         score_spectrum = component_data.get("score_spectrum", False)
+        carve_from_layers = component_data.get("carve_from_layers", [])
+        carve_from_components = component_data.get("carve_from_components", [])
         if not isinstance(carve_from_base, bool):
             raise ConfigError(f"{component_path}.carve_from_base must be a boolean")
         if not isinstance(score_spectrum, bool):
             raise ConfigError(f"{component_path}.score_spectrum must be a boolean")
+        for key, targets in (
+            ("carve_from_layers", carve_from_layers),
+            ("carve_from_components", carve_from_components),
+        ):
+            if (
+                not isinstance(targets, list)
+                or any(not isinstance(target, str) or not target.strip() for target in targets)
+                or len(set(targets)) != len(targets)
+            ):
+                raise ConfigError(
+                    f"{component_path}.{key} must be a list of unique non-empty names"
+                )
+        if carve_from_layers and carve_from_components:
+            raise ConfigError(
+                f"{component_path} cannot set both carve_from_layers and "
+                "carve_from_components"
+            )
         if not isinstance(name, str) or not name.strip():
             raise ConfigError(f"{component_path}.name must be a non-empty string")
         if name in names:
@@ -325,7 +349,10 @@ def load_config(path: str | Path) -> SimulationConfig:
             _keys(
                 component_data,
                 {"name", "shape", "center_cm", "material", "size_cm"},
-                {"carve_from_base", "score_spectrum"},
+                {
+                    "carve_from_base", "score_spectrum", "carve_from_layers",
+                    "carve_from_components",
+                },
                 component_path,
             )
             size_data = component_data["size_cm"]
@@ -341,7 +368,10 @@ def load_config(path: str | Path) -> SimulationConfig:
             _keys(
                 component_data,
                 {"name", "shape", "center_cm", "material", "radius_cm", "length_cm"},
-                {"axis", "carve_from_base", "score_spectrum"},
+                {
+                    "axis", "carve_from_base", "score_spectrum",
+                    "carve_from_layers", "carve_from_components",
+                },
                 component_path,
             )
             axis = component_data.get("axis", "z")
@@ -370,10 +400,30 @@ def load_config(path: str | Path) -> SimulationConfig:
         components.append(
             ComponentConfig(
                 name, shape, center, dimensions, material, axis, carve_from_base,
-                score_spectrum
+                score_spectrum, tuple(carve_from_layers),
+                tuple(carve_from_components)
             )
         )
         names.add(name)
+
+    layer_names = {layer.name for layer in layers}
+    component_names = {component.name for component in components}
+    for component in components:
+        unknown_layers = set(component.carve_from_layers) - layer_names
+        if unknown_layers:
+            raise ConfigError(
+                f"geometry component {component.name!r} references unknown "
+                f"layers: {', '.join(sorted(unknown_layers))}"
+            )
+        unknown_components = set(component.carve_from_components) - component_names
+        if unknown_components or component.name in component.carve_from_components:
+            invalid = unknown_components | (
+                {component.name} if component.name in component.carve_from_components else set()
+            )
+            raise ConfigError(
+                f"geometry component {component.name!r} references invalid "
+                f"components: {', '.join(sorted(invalid))}"
+            )
 
     geometry = GeometryConfig(
         cavity_radius, cavity_height, tuple(layers), tuple(components), world_radius,
