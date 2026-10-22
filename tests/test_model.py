@@ -310,6 +310,7 @@ def test_dual_borated_reactor_builds_two_sources_and_four_survey_tallies() -> No
     assert model.geometry.find((5.0, 0.0, 0.0))[-1].name == "aluminium_1"
     assert model.geometry.find((90.0, 0.0, 0.0))[-1].name == "jacket_2_gap"
     assert model.geometry.find((75.0, 0.0, 0.0))[-1].name == "jacket_2_gap"
+    assert model.geometry.find((80.0, 0.0, 0.0))[-1].name == "jacket_2_gap"
     assert model.geometry.find((95.0, 0.0, 0.0))[-1].name == "reactor_2_aluminium_1"
     for component in config.geometry.components:
         if not component.score_spectrum:

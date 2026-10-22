@@ -190,8 +190,8 @@ def build_model(config: SimulationConfig):
         component_cells[component.name] = cell
 
     external_region = -boundary & ~previous_region
-    if global_component_union is not None:
-        external_region &= ~global_component_union
+    if component_scopes:
+        external_region &= ~union(component_scopes)
     background_fill = (
         materials[config.geometry.background_material]
         if config.geometry.background_material is not None
