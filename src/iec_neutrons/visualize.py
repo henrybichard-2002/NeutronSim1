@@ -380,7 +380,15 @@ def plot_results(
             else:
                 component_radius_cm, component_length_cm = component.dimensions_cm
                 volume_cm3 = np.pi * component_radius_cm**2 * component_length_cm
-            values = _spectrum_values(survey_tally, np)
+            values = np.asarray(
+                survey_tally.get_values(scores=["flux"], value="mean"),
+                dtype=float,
+            ).reshape(-1)
+            if values.size != len(edges_mev) - 1:
+                raise ValueError(
+                    f"Survey spectrum tally for {component.name!r} has an "
+                    "unexpected number of energy bins"
+                )
             survey_spectra[component.name] = (
                 edges_mev,
                 values / volume_cm3 / np.diff(edges_mev),
