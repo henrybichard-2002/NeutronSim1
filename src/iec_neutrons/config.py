@@ -38,6 +38,20 @@ class ComponentConfig:
     dimensions_cm: tuple[float, ...]
     material: str
     axis: str | None = None
+    carve_from_base: bool = True
+
+    @property
+    def half_extents_cm(self) -> tuple[float, float, float]:
+        if self.shape == "box":
+            size_x, size_y, size_z = self.dimensions_cm
+            return size_x / 2, size_y / 2, size_z / 2
+
+        radius, length = self.dimensions_cm
+        if self.axis == "x":
+            return length / 2, radius, radius
+        if self.axis == "y":
+            return radius, length / 2, radius
+        return radius, radius, length / 2
 
 
 @dataclass(frozen=True)
@@ -65,6 +79,19 @@ class PhysicsConfig:
 
 
 @dataclass(frozen=True)
+class CustomSourceConfig:
+    cathode_radius_cm: float
+    voltage_kev: float
+    neutral_temperature_k: float
+    tritium_fraction: float
+    zone_beam_target: float
+    zone_beam_wall: float
+    zone_beam_beam: float
+    source_strength: float
+    neutral_profile: tuple[tuple[float, float], ...]
+
+
+@dataclass(frozen=True)
 class MaterialConfig:
     density_g_cm3: float
     elements: dict[str, float] | None
@@ -89,6 +116,7 @@ class TallyConfig:
 class VisualizationConfig:
     mesh_bins: int = 100
     voxel_bins: int = 64
+    he3_axial_bins: int = 40
     slice_thickness_cm: float = 0.4
     energy_bins_mev: tuple[float, ...] = ()
     marginal_x_cm: float = 0.0
@@ -106,6 +134,7 @@ class SimulationConfig:
     tally: TallyConfig
     visualization: VisualizationConfig
     physics: PhysicsConfig
+    custom_source: CustomSourceConfig | None = None
 
 
 def _mapping(value: Any, path: str) -> dict[str, Any]:
@@ -159,7 +188,7 @@ def load_config(path: str | Path) -> SimulationConfig:
     _keys(
         root,
         {"source", "geometry", "materials", "settings", "tally"},
-        {"visualization", "detector", "physics"},
+        {"visualization", "detector", "physics", "custom_source"},
         "configuration",
     )
 
@@ -256,12 +285,15 @@ def load_config(path: str | Path) -> SimulationConfig:
         _keys(
             component_data,
             {"name", "shape", "center_cm", "material"},
-            {"size_cm", "radius_cm", "length_cm", "axis"},
+            {"size_cm", "radius_cm", "length_cm", "axis", "carve_from_base"},
             component_path,
         )
         name = component_data["name"]
         shape = component_data["shape"]
         material = component_data["material"]
+        carve_from_base = component_data.get("carve_from_base", True)
+        if not isinstance(carve_from_base, bool):
+            raise ConfigError(f"{component_path}.carve_from_base must be a boolean")
         if not isinstance(name, str) or not name.strip():
             raise ConfigError(f"{component_path}.name must be a non-empty string")
         if name in names:
@@ -282,7 +314,7 @@ def load_config(path: str | Path) -> SimulationConfig:
             _keys(
                 component_data,
                 {"name", "shape", "center_cm", "material", "size_cm"},
-                set(),
+                {"carve_from_base"},
                 component_path,
             )
             size_data = component_data["size_cm"]
@@ -298,7 +330,7 @@ def load_config(path: str | Path) -> SimulationConfig:
             _keys(
                 component_data,
                 {"name", "shape", "center_cm", "material", "radius_cm", "length_cm"},
-                {"axis"},
+                {"axis", "carve_from_base"},
                 component_path,
             )
             axis = component_data.get("axis", "z")
@@ -325,7 +357,9 @@ def load_config(path: str | Path) -> SimulationConfig:
         ) >= world_radius:
             raise ConfigError(f"{component_path} must fit inside geometry.world_radius_cm")
         components.append(
-            ComponentConfig(name, shape, center, dimensions, material, axis)
+            ComponentConfig(
+                name, shape, center, dimensions, material, axis, carve_from_base
+            )
         )
         names.add(name)
 
@@ -434,6 +468,7 @@ def load_config(path: str | Path) -> SimulationConfig:
         {
             "mesh_bins",
             "voxel_bins",
+            "he3_axial_bins",
             "slice_thickness_cm",
             "energy_bins_mev",
             "marginal_x_cm",
@@ -459,6 +494,10 @@ def load_config(path: str | Path) -> SimulationConfig:
         ),
         voxel_bins=_positive_int(
             visualization_data.get("voxel_bins", 64), "visualization.voxel_bins"
+        ),
+        he3_axial_bins=_positive_int(
+            visualization_data.get("he3_axial_bins", 40),
+            "visualization.he3_axial_bins",
         ),
         slice_thickness_cm=_number(
             visualization_data.get("slice_thickness_cm", 0.4),
@@ -544,6 +583,121 @@ def load_config(path: str | Path) -> SimulationConfig:
         raise ConfigError("physics.photon_transport must be a boolean")
     physics = PhysicsConfig(photon_transport=photon_transport)
 
+    custom_source = None
+    if "custom_source" in root:
+        custom_data = _mapping(root["custom_source"], "custom_source")
+        _keys(
+            custom_data,
+            {
+                "cathode_radius_cm",
+                "voltage_kev",
+                "neutral_temperature_k",
+                "tritium_fraction",
+                "zone_beam_target",
+                "zone_beam_wall",
+                "zone_beam_beam",
+                "source_strength",
+                "neutral_profile",
+            },
+            set(),
+            "custom_source",
+        )
+        cathode_radius = _number(
+            custom_data["cathode_radius_cm"],
+            "custom_source.cathode_radius_cm",
+            minimum=0,
+            exclusive=True,
+        )
+        if cathode_radius >= geometry.cavity_radius_cm:
+            raise ConfigError(
+                "custom_source.cathode_radius_cm must be smaller than "
+                "geometry.cavity.radius_cm"
+            )
+        if not math.isclose(source.radius_cm, geometry.cavity_radius_cm):
+            raise ConfigError(
+                "source.radius_cm must match geometry.cavity.radius_cm when "
+                "custom_source is configured"
+            )
+        tritium_fraction = _number(
+            custom_data["tritium_fraction"],
+            "custom_source.tritium_fraction",
+            minimum=0,
+        )
+        if tritium_fraction > 1:
+            raise ConfigError("custom_source.tritium_fraction must not exceed 1")
+        zone_weights = {
+            key: _number(custom_data[key], f"custom_source.{key}", minimum=0)
+            for key in ("zone_beam_target", "zone_beam_wall", "zone_beam_beam")
+        }
+        if not any(zone_weights.values()):
+            raise ConfigError("custom_source must enable at least one reaction zone")
+        if zone_weights["zone_beam_beam"] > 0 and tritium_fraction >= 1:
+            raise ConfigError(
+                "custom_source.tritium_fraction must be less than 1 when "
+                "the beam-beam zone is enabled; zero is valid for pure D-D"
+            )
+        raw_profile = custom_data["neutral_profile"]
+        if not isinstance(raw_profile, list) or len(raw_profile) < 2:
+            raise ConfigError(
+                "custom_source.neutral_profile must contain at least two "
+                "[radius_fraction, relative_density] points"
+            )
+        profile = tuple(
+            (
+                _number(
+                    point[0],
+                    f"custom_source.neutral_profile[{index}][0]",
+                    minimum=0,
+                ),
+                _number(
+                    point[1],
+                    f"custom_source.neutral_profile[{index}][1]",
+                    minimum=0,
+                ),
+            )
+            for index, point in enumerate(raw_profile)
+            if isinstance(point, list) and len(point) == 2
+        )
+        if len(profile) != len(raw_profile):
+            raise ConfigError(
+                "each custom_source.neutral_profile point must be a pair"
+            )
+        if (
+            profile[0][0] != 0
+            or profile[-1][0] != 1
+            or any(
+                right[0] <= left[0]
+                for left, right in zip(profile, profile[1:])
+            )
+        ):
+            raise ConfigError(
+                "custom_source.neutral_profile radius fractions must increase "
+                "from 0 to 1"
+            )
+        custom_source = CustomSourceConfig(
+            cathode_radius_cm=cathode_radius,
+            voltage_kev=_number(
+                custom_data["voltage_kev"],
+                "custom_source.voltage_kev",
+                minimum=0,
+                exclusive=True,
+            ),
+            neutral_temperature_k=_number(
+                custom_data["neutral_temperature_k"],
+                "custom_source.neutral_temperature_k",
+                minimum=0,
+            ),
+            tritium_fraction=tritium_fraction,
+            **zone_weights,
+            source_strength=_number(
+                custom_data["source_strength"],
+                "custom_source.source_strength",
+                minimum=0,
+                exclusive=True,
+            ),
+            neutral_profile=profile,
+        )
+
     return SimulationConfig(
         source=source,
         detector=detector,
@@ -553,4 +707,5 @@ def load_config(path: str | Path) -> SimulationConfig:
         tally=tally,
         visualization=visualization,
         physics=physics,
+        custom_source=custom_source,
     )

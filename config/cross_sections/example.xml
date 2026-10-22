@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<cross_sections>
+  <directory>/home/Romulus1/NeutronsInMatter</directory>
+  <library materials="H1" path="Npaths/JEFF40-Processed-OPENMC-HDF5/1-H-1g-293.6.h5" type="neutron"/>
+  <library materials="H2" path="Npaths/JEFF40-Processed-OPENMC-HDF5/1-H-2g-293.6.h5" type="neutron"/>
+  <library materials="C12" path="Npaths/JEFF40-Processed-OPENMC-HDF5/6-C-12g-293.6.h5" type="neutron"/>
+  <library materials="C13" path="Npaths/JEFF40-Processed-OPENMC-HDF5/6-C-13g-293.6.h5" type="neutron"/>
+  <library materials="Pb204" path="Npaths/JEFF40-Processed-OPENMC-HDF5/82-Pb-204g-293.6.h5" type="neutron"/>
+  <library materials="Pb206" path="Npaths/JEFF40-Processed-OPENMC-HDF5/82-Pb-206g-293.6.h5" type="neutron"/>
+  <library materials="Pb207" path="Npaths/JEFF40-Processed-OPENMC-HDF5/82-Pb-207g-293.6.h5" type="neutron"/>
+  <library materials="Pb208" path="Npaths/JEFF40-Processed-OPENMC-HDF5/82-Pb-208g-293.6.h5" type="neutron"/>
+  <library materials="c_H_in_CH2" path="outputs/openmc_neutron_shielding/openmc_hdf5_data/c_H_in_CH2.h5" type="thermal"/>
+</cross_sections>

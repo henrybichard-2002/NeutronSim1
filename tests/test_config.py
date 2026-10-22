@@ -18,6 +18,7 @@ def test_example_configuration_loads() -> None:
     assert config.tally.energy_bins_mev[0] == 0.0
     assert config.visualization.mesh_bins == 100
     assert config.visualization.voxel_bins == 64
+    assert config.visualization.he3_axial_bins == 40
     assert not config.physics.photon_transport
 
 
@@ -58,6 +59,16 @@ def test_invalid_visualization_mesh_resolution_is_rejected(tmp_path: Path) -> No
     path.write_text(text, encoding="utf-8")
 
     with pytest.raises(ConfigError, match="visualization.mesh_bins"):
+        load_config(path)
+
+
+def test_invalid_he3_axial_resolution_is_rejected(tmp_path: Path) -> None:
+    text = EXAMPLE.read_text(encoding="utf-8").split("\nvisualization:", maxsplit=1)[0]
+    text += "\nvisualization:\n  he3_axial_bins: 0\n"
+    path = tmp_path / "invalid.yaml"
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="visualization.he3_axial_bins"):
         load_config(path)
 
 
@@ -114,6 +125,27 @@ def test_reactorpath_configs(
     assert config.detector.width_x_cm == 0.4
     assert config.detector.width_y_cm == 0.4
     assert config.detector.thickness_z_cm == 0.05
+
+
+def test_gen_dd_reactor_loads_as_pure_deuterium() -> None:
+    config = load_config(CONFIG_DIR / "genDD_reactor.yaml")
+
+    assert config.custom_source is not None
+    assert config.custom_source.tritium_fraction == 0.0
+    assert (
+        config.custom_source.zone_beam_target,
+        config.custom_source.zone_beam_wall,
+        config.custom_source.zone_beam_beam,
+    ) == (1.0, 1.0, 1.0)
+
+
+def test_beam_beam_source_rejects_pure_tritium(tmp_path: Path) -> None:
+    text = (CONFIG_DIR / "genDD_reactor.yaml").read_text(encoding="utf-8")
+    path = tmp_path / "pure_tritium.yaml"
+    path.write_text(text.replace("tritium_fraction: 0.0", "tritium_fraction: 1.0"))
+
+    with pytest.raises(ConfigError, match="zero is valid for pure D-D"):
+        load_config(path)
 
 
 def test_external_he3_detector_example_uses_provisional_components() -> None:

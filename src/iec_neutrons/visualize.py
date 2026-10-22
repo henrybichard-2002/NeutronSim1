@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 import warnings
 
 from .config import SimulationConfig
@@ -24,7 +25,8 @@ class PlotStyle:
     spatial_cscale: str = "log"
     energy_cscale: str = "log"
     uncertainty_cscale: str = "log"
-    heatmap_min_percentile: float = 2.0
+    heatmap_min_percentile: float = 0.1
+    heatmap_max_percentile: float = 99.9
     spectrum_xscale: str = "linear"
     spectrum_yscale: str = "log"
     marginal_xscale: str = "linear"
@@ -35,7 +37,7 @@ class PlotStyle:
     spatial_clim: tuple[float, float] | None = None
     energy_clim: tuple[float, float] | None = None
     uncertainty_clim: tuple[float, float] | None = None
-    spectrum_xlim: tuple[float, float] | None = None
+    spectrum_xlim: tuple[0.1, 20.0] | None = None
     spectrum_ylim: tuple[float, float] | None = None
     marginal_ylim: tuple[float, float] | None = None
 
@@ -55,13 +57,18 @@ def plot_results(
         import numpy as np
         import openmc
     except ImportError as exc:
-        dependency = "OpenMC" if exc.name == "openmc" else "Matplotlib"
-        raise RuntimeError(f"{dependency} is required to plot simulation results") from exc
+        dependency = exc.name or "a plotting dependency"
+        raise RuntimeError(
+            f"Could not import {dependency} while plotting with "
+            f"{sys.executable}: {exc}. Install the plotting "
+            'extra into the active environment with: python -m pip install -e ".[plot]"'
+        ) from exc
 
     matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
     from matplotlib.colors import LogNorm, Normalize
     from matplotlib.patches import Circle, Patch, Rectangle, Wedge
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
     statepoint_file = Path(statepoint_path).resolve()
     if not statepoint_file.is_file():
@@ -127,6 +134,8 @@ def plot_results(
             for view in ("xy", "xz")
         }
         spectra = {}
+        he3_detector_spectra = {}
+        he3_axial_capture_responses = {}
         if "flux_spectrum_source" in available_names:
             spectra["Source volume"] = _spectrum_values(
                 statepoint.get_tally(name="flux_spectrum_source"), np
@@ -150,6 +159,193 @@ def plot_results(
         for layer in config.geometry.layers:
             spectra[layer.name] = _spectrum_values(
                 statepoint.get_tally(name=f"flux_spectrum_{layer.name}"), np
+            )
+        for component in config.geometry.components:
+            material = config.materials[component.material]
+            if "He3" not in (material.nuclides or {}):
+                continue
+
+            flux_tally_name = f"flux_spectrum_{component.name}"
+            if flux_tally_name in available_names:
+                spectra[f"{component.name} (He-3 gas)"] = _spectrum_values(
+                    statepoint.get_tally(name=flux_tally_name), np
+                )
+
+            neutron_tally_name = f"he3_neutron_spectrum_{component.name}"
+            response_tally_name = f"he3_n_p_spectrum_{component.name}"
+            missing_he3_tallies = {
+                name
+                for name in (neutron_tally_name, response_tally_name)
+                if name not in available_names
+            }
+            if missing_he3_tallies:
+                warnings.warn(
+                    "Statepoint is missing He-3 spectrum tallies: "
+                    f"{', '.join(sorted(missing_he3_tallies))}. Rerun the "
+                    "simulation with the current model to generate the "
+                    "combined spectrum with low-energy resolution.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                continue
+
+            neutron_tally = statepoint.get_tally(name=neutron_tally_name)
+            response_tally = statepoint.get_tally(name=response_tally_name)
+            neutron_energy_filter = next(
+                (
+                    item
+                    for item in neutron_tally.filters
+                    if isinstance(item, openmc.EnergyFilter)
+                ),
+                None,
+            )
+            response_energy_filter = next(
+                (
+                    item
+                    for item in response_tally.filters
+                    if isinstance(item, openmc.EnergyFilter)
+                ),
+                None,
+            )
+            if neutron_energy_filter is None or response_energy_filter is None:
+                raise ValueError(
+                    f"He-3 spectrum tallies for {component.name!r} "
+                    "must both have energy filters"
+                )
+            neutron_bins_ev = np.asarray(neutron_energy_filter.bins, dtype=float)
+            response_bins_ev = np.asarray(response_energy_filter.bins, dtype=float)
+            if (
+                neutron_bins_ev.ndim != 2
+                or neutron_bins_ev.shape[1] != 2
+                or response_bins_ev.ndim != 2
+                or response_bins_ev.shape[1] != 2
+            ):
+                raise ValueError(
+                    f"He-3 spectrum tallies for {component.name!r} "
+                    "have unexpected energy bins"
+                )
+            neutron_edges_mev = np.concatenate(
+                (neutron_bins_ev[:1, 0], neutron_bins_ev[:, 1])
+            ) / 1.0e6
+            response_edges_mev = np.concatenate(
+                (response_bins_ev[:1, 0], response_bins_ev[:, 1])
+            ) / 1.0e6
+            if not np.allclose(neutron_edges_mev, response_edges_mev):
+                raise ValueError(
+                    f"He-3 neutron and capture tallies for {component.name!r} "
+                    "have different energy bins"
+                )
+            if not (
+                np.isclose(neutron_edges_mev[0], 0.0)
+                and np.isclose(neutron_edges_mev[-1], config.tally.energy_bins_mev[-1])
+                and np.any(np.isclose(neutron_edges_mev, 1.0e-6))
+                and np.any(np.isclose(neutron_edges_mev, 0.1))
+            ):
+                raise ValueError(
+                    f"He-3 spectrum tallies for {component.name!r} do not "
+                    "cover 1 eV through 0.1 MeV with the expected boundaries"
+                )
+            neutron_flux = np.asarray(
+                neutron_tally.get_values(scores=["flux"], value="mean"),
+                dtype=float,
+            ).reshape(-1)
+            capture_response = np.asarray(
+                response_tally.get_values(scores=["(n,p)"], value="mean"),
+                dtype=float,
+            ).reshape(-1)
+            if (
+                neutron_flux.size != len(neutron_edges_mev) - 1
+                or capture_response.size != len(response_edges_mev) - 1
+            ):
+                raise ValueError(
+                    f"He-3 spectrum tallies for {component.name!r} have "
+                    "unexpected numbers of energy bins"
+                )
+            he3_detector_spectra[component.name] = (
+                neutron_edges_mev,
+                neutron_flux,
+                capture_response,
+            )
+            axial_tally_name = f"he3_n_p_axial_energy_{component.name}"
+            if axial_tally_name not in available_names:
+                warnings.warn(
+                    f"Statepoint is missing {axial_tally_name!r}; rerun the "
+                    "simulation with the current model to create the "
+                    "position-resolved He-3 capture heatmap.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                continue
+
+            axial_tally = statepoint.get_tally(name=axial_tally_name)
+            axial_energy_filter = next(
+                (
+                    item
+                    for item in axial_tally.filters
+                    if isinstance(item, openmc.EnergyFilter)
+                ),
+                None,
+            )
+            axial_mesh_filter = next(
+                (
+                    item
+                    for item in axial_tally.filters
+                    if isinstance(item, openmc.MeshFilter)
+                ),
+                None,
+            )
+            if axial_energy_filter is None or axial_mesh_filter is None:
+                raise ValueError(
+                    f"Axial He-3 capture tally for {component.name!r} "
+                    "must have energy and mesh filters"
+                )
+            axial_bins_ev = np.asarray(axial_energy_filter.bins, dtype=float)
+            axial_edges_mev = np.concatenate(
+                (axial_bins_ev[:1, 0], axial_bins_ev[:, 1])
+            ) / 1.0e6
+            axial_bin_count = int(axial_mesh_filter.mesh.dimension[2])
+            center_cm = np.asarray(component.center_cm, dtype=float)
+            half_extents_cm = np.asarray(component.half_extents_cm, dtype=float)
+            if (
+                not np.allclose(axial_edges_mev, response_edges_mev)
+                or axial_bin_count != config.visualization.he3_axial_bins
+                or not np.allclose(
+                    axial_mesh_filter.mesh.lower_left,
+                    center_cm - half_extents_cm,
+                )
+                or not np.allclose(
+                    axial_mesh_filter.mesh.upper_right,
+                    center_cm + half_extents_cm,
+                )
+            ):
+                raise ValueError(
+                    f"Axial He-3 capture tally for {component.name!r} has "
+                    "unexpected energy, height, or detector bounds"
+                )
+            axial_capture = np.asarray(
+                axial_tally.get_values(scores=["(n,p)"], value="mean"),
+                dtype=float,
+            ).reshape(-1)
+            expected_size = axial_bin_count * (len(axial_edges_mev) - 1)
+            if axial_capture.size != expected_size:
+                raise ValueError(
+                    f"Axial He-3 capture tally for {component.name!r} has "
+                    "an unexpected number of bins"
+                )
+            z_edges_cm = np.linspace(
+                -half_extents_cm[2],
+                half_extents_cm[2],
+                axial_bin_count + 1,
+            )
+            response_density = axial_capture.reshape(
+                axial_bin_count, len(axial_edges_mev) - 1
+            )
+            response_density /= np.diff(z_edges_cm)[:, None]
+            response_density /= np.diff(axial_edges_mev)[None, :]
+            he3_axial_capture_responses[component.name] = (
+                axial_edges_mev,
+                z_edges_cm,
+                response_density,
             )
         detector_available = "detector_energy_spectrum" in available_names
         detector_mean = None
@@ -292,6 +488,52 @@ def plot_results(
         )
     )
 
+    components_by_name = {
+        component.name: component for component in config.geometry.components
+    }
+    for component_name, (edges, neutron_flux, capture_response) in (
+        he3_detector_spectra.items()
+    ):
+        component = components_by_name[component_name]
+        if component.shape == "box":
+            component_volume_cm3 = float(np.prod(component.dimensions_cm))
+        else:
+            component_radius_cm, component_length_cm = component.dimensions_cm
+            component_volume_cm3 = (
+                np.pi * component_radius_cm**2 * component_length_cm
+            )
+        bin_widths = np.diff(edges)
+        paths.append(
+            _plot_he3_detector_spectrum(
+                neutron_flux / component_volume_cm3 / bin_widths,
+                capture_response / bin_widths,
+                edges,
+                component_name,
+                "log",
+                destination
+                / f"he3_detector_spectrum_{component_name}_log.png",
+                plt,
+                PLOT_STYLE,
+            )
+        )
+        if component_name in he3_axial_capture_responses:
+            energy_edges, z_edges, response_density = (
+                he3_axial_capture_responses[component_name]
+            )
+            paths.append(
+                _plot_he3_capture_heatmap(
+                    energy_edges,
+                    z_edges,
+                    response_density,
+                    component_name,
+                    destination
+                    / f"he3_capture_response_{component_name}_height_energy.png",
+                    plt,
+                    LogNorm,
+                    PLOT_STYLE,
+                )
+            )
+
     if detector_mean is not None and detector_std_dev is not None:
         paths.append(
             _plot_detector_spectrum(
@@ -343,6 +585,7 @@ def plot_results(
             np,
             Patch,
             PLOT_STYLE,
+            Poly3DCollection,
         )
     )
     return paths
@@ -478,10 +721,12 @@ def _geometry_voxel_data(config: SimulationConfig, np):
 
     for index, component in enumerate(config.geometry.components):
         later_components = component_masks[index + 1 :]
-        mask = component_masks[index] & ~previous_region & within_world
+        mask = component_masks[index] & within_world
         if later_components:
             mask &= ~np.logical_or.reduce(later_components)
         labels[mask] = category_ids[component.material]
+    cutaway = (x > 0.0) & (y < 0.0)
+    labels[cutaway] = -1
     return labels, category_names, tuple(tuple(axis) for axis in bounds)
 
 
@@ -495,29 +740,55 @@ def _plot_geometry_voxels(
     np,
     Patch,
     style: PlotStyle,
+    Poly3DCollection,
 ) -> Path:
     filled = labels >= 0
     if not np.any(filled):
         raise ValueError("The configured geometry does not intersect the voxel grid")
     palette = plt.get_cmap(style.geometry_cmap, len(category_names))
-    facecolors = palette(np.maximum(labels, 0))
-    facecolors[..., 3] = np.where(filled, 1.0, 0.0)
     edges = [
         np.linspace(lower, upper, bins + 1)
         for lower, upper in bounds
     ]
-    grid_x, grid_y, grid_z = np.meshgrid(*edges, indexing="ij")
+    faces = []
+    facecolors = []
+    corner_offsets = ((0, 0), (1, 0), (1, 1), (0, 1))
+
+    for axis_index in range(3):
+        other_axes = [index for index in range(3) if index != axis_index]
+        for positive in (False, True):
+            neighbors = np.roll(
+                filled, -1 if positive else 1, axis=axis_index
+            )
+            boundary = [slice(None)] * 3
+            boundary[axis_index] = slice(-1, None) if positive else slice(0, 1)
+            neighbors[tuple(boundary)] = False
+            voxel_indices = np.where(filled & ~neighbors)
+            if not voxel_indices[0].size:
+                continue
+
+            face_vertices = np.empty((voxel_indices[0].size, 4, 3), dtype=float)
+            face_coordinate = voxel_indices[axis_index] + int(positive)
+            face_vertices[:, :, axis_index] = edges[axis_index][
+                face_coordinate, None
+            ]
+            for corner_index, offsets in enumerate(corner_offsets):
+                for offset_index, dimension in enumerate(other_axes):
+                    face_vertices[:, corner_index, dimension] = edges[dimension][
+                        voxel_indices[dimension] + offsets[offset_index]
+                    ]
+            faces.append(face_vertices)
+            facecolors.append(palette(labels[voxel_indices]))
 
     figure = plt.figure(figsize=(11, 9), constrained_layout=True)
     axis = figure.add_subplot(111, projection="3d")
-    axis.voxels(
-        grid_x,
-        grid_y,
-        grid_z,
-        filled,
-        facecolors=facecolors,
-        edgecolor=None,
-        shade=False,
+    axis.view_init(elev=25, azim=-55)
+    axis.add_collection3d(
+        Poly3DCollection(
+            np.concatenate(faces),
+            facecolors=np.concatenate(facecolors),
+            edgecolors="none",
+        )
     )
     for axis_index, (lower, upper) in enumerate(bounds):
         setter = (axis.set_xlim, axis.set_ylim, axis.set_zlim)[axis_index]
@@ -526,7 +797,10 @@ def _plot_geometry_voxels(
     axis.set_xlabel("x (cm)")
     axis.set_ylabel("y (cm)")
     axis.set_zlabel("z (cm)")
-    axis.set_title(f"3D voxel geometry ({bins} × {bins} × {bins} voxels)")
+    axis.set_title(
+        f"3D voxel geometry with quarter cutaway "
+        f"({bins} × {bins} × {bins} voxels)"
+    )
     axis.legend(
         handles=[
             Patch(facecolor=palette(index), edgecolor="black", label=name)
@@ -911,7 +1185,8 @@ def _plot_spatial_map(
     positive = masked.compressed()
     positive = positive[positive > 0]
     low = _heatmap_minimum(positive, style.heatmap_min_percentile, np)
-    high = float(positive.max()) if positive.size else 1.0
+    high = _heatmap_maximum(positive, style.heatmap_max_percentile, np) if positive.size else 1.0
+
     color_scale = style.spatial_cscale if LogNorm is not None else style.uncertainty_cscale
     color_limits = style.spatial_clim if LogNorm is not None else style.uncertainty_clim
     if color_limits is not None:
@@ -971,7 +1246,7 @@ def _plot_energy_map(
     norm = None
     if positives.size:
         low = _heatmap_minimum(positives, style.heatmap_min_percentile, np)
-        high = float(positives.max())
+        high = _heatmap_maximum(positives, style.heatmap_max_percentile, np)
         if style.energy_clim is not None:
             low, high = style.energy_clim
         elif high <= low:
@@ -1024,6 +1299,13 @@ def _heatmap_minimum(positive_values, percentile: float, np) -> float:
         raise ValueError("PLOT_STYLE.heatmap_min_percentile must be in [0, 100)")
     if not positive_values.size:
         return 0.0
+    return float(np.percentile(positive_values, percentile))
+
+def _heatmap_maximum(positive_values, percentile: float, np) -> float:
+    if not 0 <= percentile < 100:
+        raise ValueError("PLOT_STYLE.heatmap_max_percentile must be in [0, 100)")
+    if not positive_values.size:
+        return 1.0
     return float(np.percentile(positive_values, percentile))
 
 
@@ -1193,6 +1475,241 @@ def _plot_detector_spectrum(
         )
     axis.grid(True, which="both", alpha=0.25)
     axis.legend()
+    figure.savefig(str(path), dpi=180)
+    plt.close(figure)
+    return path
+
+
+def _plot_he3_detector_spectrum(
+    neutron_flux,
+    capture_response,
+    edges,
+    component_name,
+    yscale: str,
+    path,
+    plt,
+    style: PlotStyle,
+) -> Path:
+    import numpy as np
+
+    if yscale not in {"linear", "log"}:
+        raise ValueError("He-3 spectrum yscale must be 'linear' or 'log'")
+    inset_min_mev = 1.0e-6
+    inset_max_mev = 0.1
+    inset_bins = (edges[:-1] >= inset_min_mev) & (edges[1:] <= inset_max_mev)
+    if not np.any(inset_bins):
+        raise ValueError(
+            "He-3 spectrum tallies need energy bins spanning 1 eV to 0.1 MeV"
+        )
+    inset_start = int(np.flatnonzero(inset_bins)[0])
+    inset_stop = int(np.flatnonzero(inset_bins)[-1]) + 1
+    inset_edges = edges[inset_start : inset_stop + 1]
+    inset_flux = neutron_flux[inset_start:inset_stop]
+    inset_response = capture_response[inset_start:inset_stop]
+
+    figure, axis = plt.subplots(figsize=(10, 6), constrained_layout=True)
+    capture_axis = axis.twinx()
+    flux_color = style.spectrum_color
+    capture_color = plt.get_cmap(style.spectrum_cmap)(1)
+    flux_line = axis.stairs(
+        neutron_flux,
+        edges,
+        color=flux_color,
+        linewidth=1.5,
+        label="Neutron flux in He-3 gas",
+    )
+    capture_line = capture_axis.stairs(
+        capture_response,
+        edges,
+        color=capture_color,
+        linewidth=1.5,
+        label="He-3 (n,p) capture response",
+    )
+    axis.set_xscale(style.spectrum_xscale)
+    axis.set_xlim(*(style.spectrum_xlim or (edges[0], edges[-1])))
+    flux_has_positive_values = _set_he3_yscale(
+        axis, yscale, neutron_flux, (1.0e-12, 1.0), np
+    )
+    capture_has_positive_values = _set_he3_yscale(
+        capture_axis, yscale, capture_response, (1.0e-12, 1.0), np
+    )
+    axis.set_xlabel("Incident neutron energy (MeV)")
+    axis.set_ylabel(
+        "Volume-averaged neutron flux "
+        "(cm$^{-2}$ source neutron$^{-1}$ MeV$^{-1}$)",
+        color=flux_color,
+    )
+    capture_axis.set_ylabel(
+        "He-3 (n,p) reactions per source neutron per MeV",
+        color=capture_color,
+    )
+    axis.tick_params(axis="y", labelcolor=flux_color)
+    capture_axis.tick_params(axis="y", labelcolor=capture_color)
+    axis.set_title(
+        f"He-3 detector neutron spectrum and capture response "
+        f"({yscale} y scale): {component_name}"
+    )
+    axis.grid(True, which="both", alpha=0.25)
+    axis.legend(
+        handles=[flux_line, capture_line],
+        loc="upper left",
+        fontsize="small",
+    )
+    if not flux_has_positive_values:
+        axis.text(
+            0.5,
+            0.5,
+            "No positive neutron flux sampled",
+            transform=axis.transAxes,
+            ha="center",
+            va="center",
+            color=flux_color,
+        )
+    if not capture_has_positive_values:
+        capture_axis.text(
+            0.5,
+            0.45,
+            "No positive capture response sampled",
+            transform=capture_axis.transAxes,
+            ha="center",
+            va="center",
+            color=capture_color,
+        )
+
+    inset = axis.inset_axes([0.48, 0.52, 0.48, 0.42])
+    inset_capture_axis = inset.twinx()
+    inset.stairs(inset_flux, inset_edges, color=flux_color, linewidth=1.0)
+    inset_capture_axis.stairs(
+        inset_response, inset_edges, color=capture_color, linewidth=1.0
+    )
+    inset.set_xscale("log")
+    inset.set_xlim(inset_min_mev, inset_max_mev)
+    inset_flux_has_positive_values = _set_he3_yscale(
+        inset, yscale, inset_flux, axis.get_ylim(), np
+    )
+    inset_capture_has_positive_values = _set_he3_yscale(
+        inset_capture_axis,
+        yscale,
+        inset_response,
+        capture_axis.get_ylim(),
+        np,
+    )
+    inset.set_title("1 eV–0.1 MeV detail", fontsize="small")
+    inset.set_xlabel("Incident energy (MeV)", fontsize="small")
+    inset.tick_params(axis="both", labelsize="x-small")
+    inset_capture_axis.tick_params(axis="y", labelsize="x-small")
+    inset.grid(True, which="both", alpha=0.2)
+    if not inset_flux_has_positive_values:
+        inset.text(
+            0.04,
+            0.05,
+            "No neutron flux sampled",
+            transform=inset.transAxes,
+            fontsize="x-small",
+        )
+    if not inset_capture_has_positive_values:
+        inset.text(
+            0.04,
+            0.15,
+            "No capture events",
+            transform=inset.transAxes,
+            fontsize="x-small",
+        )
+    axis.indicate_inset_zoom(inset, edgecolor="0.4")
+
+    figure.savefig(str(path), dpi=180)
+    plt.close(figure)
+    return path
+
+
+def _set_he3_yscale(axis, yscale: str, values, fallback_limits, np) -> bool:
+    has_positive_values = bool(np.any(np.isfinite(values) & (values > 0)))
+    if yscale == "log" and not has_positive_values:
+        axis.set_ylim(*fallback_limits)
+    axis.set_yscale(yscale)
+    return has_positive_values
+
+
+def _plot_he3_capture_heatmap(
+    energy_edges_mev,
+    z_edges_cm,
+    response_density,
+    component_name: str,
+    path: Path,
+    plt,
+    LogNorm,
+    style: PlotStyle,
+) -> Path:
+    import numpy as np
+
+    energy_edges_mev = np.asarray(energy_edges_mev, dtype=float)
+    z_edges_cm = np.asarray(z_edges_cm, dtype=float)
+    response_density = np.asarray(response_density, dtype=float)
+    if (
+        energy_edges_mev.ndim != 1
+        or z_edges_cm.ndim != 1
+        or response_density.shape
+        != (z_edges_cm.size - 1, energy_edges_mev.size - 1)
+    ):
+        raise ValueError("He-3 capture heatmap arrays have inconsistent bin shapes")
+
+    first_visible_bin = int(energy_edges_mev[0] <= 0.0)
+    visible_energy_edges = energy_edges_mev[first_visible_bin:]
+    visible_response = response_density[:, first_visible_bin:]
+    if visible_energy_edges.size < 2 or np.any(visible_energy_edges <= 0.0):
+        raise ValueError("He-3 capture heatmap needs positive logarithmic energy bins")
+
+    figure, axis = plt.subplots(figsize=(10, 6), constrained_layout=True)
+    positive = visible_response[
+        np.isfinite(visible_response) & (visible_response > 0.0)
+    ]
+    if positive.size:
+        minimum = float(np.percentile(positive, style.heatmap_min_percentile))
+        maximum = float(np.percentile(positive, style.heatmap_max_percentile))
+        minimum = max(minimum, float(positive.min()))
+        maximum = min(maximum, float(positive.max()))
+        if maximum <= minimum:
+            maximum = minimum * (1.0 + 1.0e-6)
+        color_mesh = axis.pcolormesh(
+            visible_energy_edges,
+            z_edges_cm,
+            np.ma.masked_less_equal(visible_response, 0.0),
+            cmap=style.energy_cmap,
+            norm=LogNorm(vmin=minimum, vmax=maximum),
+            shading="flat",
+        )
+        colorbar = figure.colorbar(color_mesh, ax=axis, pad=0.02)
+        colorbar.set_label(
+            "He-3 capture response density "
+            "(reactions source neutron$^{-1}$ MeV$^{-1}$ cm$^{-1}$)"
+        )
+    else:
+        axis.text(
+            0.5,
+            0.5,
+            "No positive He-3 capture response sampled",
+            transform=axis.transAxes,
+            ha="center",
+            va="center",
+        )
+
+    axis.set_xscale("log")
+    axis.set_xlim(visible_energy_edges[0], visible_energy_edges[-1])
+    axis.set_ylim(z_edges_cm[0], z_edges_cm[-1])
+    axis.set_xlabel("Incident neutron energy (MeV)")
+    axis.set_ylabel("Height in He-3 gas relative to detector center (cm)")
+    axis.set_title(f"He-3 capture response by energy and height: {component_name}")
+    axis.text(
+        0.99,
+        0.01,
+        "Below 1e-5 eV omitted from log axis",
+        transform=axis.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize="x-small",
+        color="0.3",
+    )
+    axis.grid(True, which="both", alpha=0.2)
     figure.savefig(str(path), dpi=180)
     plt.close(figure)
     return path

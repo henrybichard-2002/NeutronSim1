@@ -29,8 +29,9 @@ def build_model(config: SimulationConfig):
             material.add_s_alpha_beta(table)
         materials[name] = material
 
-    def cylinder_region(radius_cm: float, height_cm: float):
-        cylinder = openmc.ZCylinder(r=radius_cm)
+    def cylinder_region(radius_cm: float, height_cm: float, cylinder=None):
+        if cylinder is None:
+            cylinder = openmc.ZCylinder(r=radius_cm)
         lower = openmc.ZPlane(z0=-height_cm / 2)
         upper = openmc.ZPlane(z0=height_cm / 2)
         return -cylinder & +lower & -upper
@@ -70,14 +71,41 @@ def build_model(config: SimulationConfig):
             combined |= region
         return combined
 
+    component_regions = [
+        component_region(component) for component in config.geometry.components
+    ]
+    base_cutouts = [
+        region
+        for component, region in zip(
+            config.geometry.components, component_regions, strict=True
+        )
+        if component.carve_from_base
+    ]
+    component_union = union(base_cutouts) if base_cutouts else None
+    cavity_cylinder = openmc.ZCylinder(r=config.geometry.cavity_radius_cm)
     cavity_region = cylinder_region(
-        config.geometry.cavity_radius_cm, config.geometry.cavity_height_cm
+        config.geometry.cavity_radius_cm,
+        config.geometry.cavity_height_cm,
+        cavity_cylinder,
     )
-    source_region = cylinder_region(config.source.radius_cm, config.source.height_cm)
+    # Avoid coincident but distinct radial surfaces when both radii match.
+    source_cylinder = (
+        cavity_cylinder
+        if config.source.radius_cm == config.geometry.cavity_radius_cm
+        else None
+    )
+    source_region = cylinder_region(
+        config.source.radius_cm, config.source.height_cm, source_cylinder
+    )
+    if component_union is not None:
+        source_region &= ~component_union
     source_cell = openmc.Cell(name="source volume", region=source_region)
+    cavity_cell_region = cavity_region & ~source_region
+    if component_union is not None:
+        cavity_cell_region &= ~component_union
     cavity_cell = openmc.Cell(
         name="source cavity outside source volume",
-        region=cavity_region & ~source_region,
+        region=cavity_cell_region,
     )
     cells = [source_cell, cavity_cell]
     previous_region = cavity_region
@@ -87,23 +115,23 @@ def build_model(config: SimulationConfig):
     ]
     for layer in config.geometry.layers:
         layer_region = cylinder_region(layer.radius_cm, layer.height_cm)
+        layer_cell_region = layer_region & ~previous_region
+        if component_union is not None:
+            layer_cell_region &= ~component_union
         cell = openmc.Cell(
             name=layer.name,
             fill=materials[layer.material],
-            region=layer_region & ~previous_region,
+            region=layer_cell_region,
         )
         cells.append(cell)
         tally_cells.append((layer.name, cell))
         previous_region = layer_region
 
     boundary = openmc.Sphere(r=config.geometry.world_radius_cm, boundary_type="vacuum")
-    component_regions = [
-        component_region(component) for component in config.geometry.components
-    ]
     material_cells = list(tally_cells[2:])
     component_cells = {}
     for index, component in enumerate(config.geometry.components):
-        region = component_regions[index] & ~previous_region
+        region = component_regions[index]
         if index + 1 < len(component_regions):
             region &= ~union(component_regions[index + 1 :])
         cell = openmc.Cell(
@@ -117,8 +145,8 @@ def build_model(config: SimulationConfig):
         component_cells[component.name] = cell
 
     external_region = -boundary & ~previous_region
-    if component_regions:
-        external_region &= ~union(component_regions)
+    if component_union is not None:
+        external_region &= ~component_union
     cells.append(
         openmc.Cell(name="external vacuum", region=external_region)
     )
@@ -144,6 +172,14 @@ def build_model(config: SimulationConfig):
     )
 
     energy_edges_ev = [edge * 1.0e6 for edge in config.tally.energy_bins_mev]
+    he3_energy_edges_ev = [
+        0.0,
+        *(
+            10.0 ** (-5.0 + 10.0 * index / 240.0)
+            for index in range(241)
+        ),
+        *(edge for edge in energy_edges_ev if edge > 1.0e5),
+    ]
     map_energy_edges_ev = [
         edge * 1.0e6 for edge in config.visualization.energy_bins_mev
     ]
@@ -209,16 +245,55 @@ def build_model(config: SimulationConfig):
         composition = config.materials[component.material].nuclides or {}
         if "He3" not in composition:
             continue
+        neutron_spectrum = openmc.Tally(
+            name=f"he3_neutron_spectrum_{component.name}"
+        )
+        neutron_spectrum.filters = [
+            openmc.CellFilter(component_cells[component.name]),
+            openmc.ParticleFilter("neutron"),
+            make_energy_filter(he3_energy_edges_ev),
+        ]
+        neutron_spectrum.scores = ["flux"]
+        tallies.append(neutron_spectrum)
+
         he3_response = openmc.Tally(name=f"he3_n_p_spectrum_{component.name}")
         he3_response.filters = [
             openmc.CellFilter(component_cells[component.name]),
             openmc.ParticleFilter("neutron"),
-            make_energy_filter(energy_edges_ev),
+            make_energy_filter(he3_energy_edges_ev),
         ]
         he3_response.nuclides = ["He3"]
         he3_response.scores = ["(n,p)"]
         tallies.append(he3_response)
 
+        center_x, center_y, center_z = component.center_cm
+        half_x, half_y, half_z = component.half_extents_cm
+        axial_mesh = openmc.RegularMesh(
+            name=f"he3_axial_mesh_{component.name}"
+        )
+        axial_mesh.dimension = (1, 1, config.visualization.he3_axial_bins)
+        axial_mesh.lower_left = (
+            center_x - half_x,
+            center_y - half_y,
+            center_z - half_z,
+        )
+        axial_mesh.upper_right = (
+            center_x + half_x,
+            center_y + half_y,
+            center_z + half_z,
+        )
+        axial_capture = openmc.Tally(
+            name=f"he3_n_p_axial_energy_{component.name}"
+        )
+        axial_capture.filters = [
+            openmc.CellFilter(component_cells[component.name]),
+            openmc.ParticleFilter("neutron"),
+            openmc.MeshFilter(axial_mesh),
+            make_energy_filter(he3_energy_edges_ev),
+        ]
+        axial_capture.nuclides = ["He3"]
+        axial_capture.scores = ["(n,p)"]
+        tallies.append(axial_capture)
     production_tally = openmc.Tally(name="secondary_particle_production")
     production_energy_ev = sorted(
         set([0.0, 1.0e3, 1.0e5, 1.0e6, *energy_edges_ev])
@@ -231,6 +306,15 @@ def build_model(config: SimulationConfig):
     ]
     production_tally.scores = ["events"]
     tallies.append(production_tally)
+
+    leakage_tally = openmc.Tally(name="world_neutron_leakage_spectrum")
+    leakage_tally.filters = [
+        openmc.SurfaceFilter(boundary),
+        make_energy_filter(energy_edges_ev),
+        openmc.ParticleFilter("neutron"),
+    ]
+    leakage_tally.scores = ["current"]
+    tallies.append(leakage_tally)
 
     mesh_bins = config.visualization.mesh_bins
     radius = config.geometry.world_radius_cm
