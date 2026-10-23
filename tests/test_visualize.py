@@ -6,6 +6,7 @@ from iec_neutrons.config import load_config
 from iec_neutrons.visualize import (
     PLOT_STYLE,
     _geometry_voxel_data,
+    _material_colors,
     _plot_geometry,
     _plot_geometry_voxels,
     _plot_he3_capture_heatmap,
@@ -192,7 +193,9 @@ def test_geometry_plot_covers_world_radius(view: str, tmp_path: Path, monkeypatc
     figure.clear()
 
 
-def test_geometry_plot_labels_external_components(tmp_path: Path, monkeypatch) -> None:
+def test_geometry_plot_uses_material_legend_without_component_labels(
+    tmp_path: Path, monkeypatch
+) -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
@@ -222,10 +225,34 @@ def test_geometry_plot_labels_external_components(tmp_path: Path, monkeypatch) -
     )
 
     figure, axis = figures[0]
-    labels = {label.get_text() for label in axis.texts}
-    assert "hdpe_moderator\npolyethylene" in labels
-    assert "he3_gas\nhelium3_gas" in labels
-    assert any("he3_gas: helium3_gas" in label.get_text() for label in axis.get_legend().texts)
+    colors = _material_colors(config, PLOT_STYLE)
+    legend = axis.get_legend()
+    legend_labels = [label.get_text() for label in legend.get_texts()]
+    legend_handles = legend.legend_handles
+    labels = set(legend_labels)
+    expected_material_labels = {
+        f"Material: {material}" for material in colors
+    }
+    assert expected_material_labels <= labels
+    assert {text.get_text() for text in axis.texts} == {"Detector (y=0 cm)"}
+    assert not any("he3_gas" in label for label in labels)
+    material_handles = {
+        label.removeprefix("Material: "): handle
+        for handle, label in zip(legend_handles, legend_labels, strict=True)
+        if label.startswith("Material: ")
+    }
+    for material, handle in material_handles.items():
+        assert handle.get_facecolor() == pytest.approx(colors[material])
+    component_start = len(config.geometry.layers) + 1
+    component_patches = axis.patches[
+        component_start : component_start + len(config.geometry.components)
+    ]
+    for component, patch in zip(
+        config.geometry.components, component_patches, strict=True
+    ):
+        assert patch.get_facecolor()[:3] == pytest.approx(
+            colors[component.material][:3]
+        )
     figure.clear()
 
 

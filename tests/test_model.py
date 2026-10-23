@@ -189,6 +189,27 @@ def test_gen_reactor_geometry_and_custom_source_zones() -> None:
     assert len(matching_cylinders) == 3
 
 
+def test_profile_surface_flux_reference_mesh_is_just_outside_cowling() -> None:
+    openmc = pytest.importorskip("openmc")
+    config = load_config(CONFIG_DIR / "gen_reactor_config_profile.yaml")
+    model = build_model(config)
+    tally = next(
+        item for item in model.tallies if item.name == "flux_surface_normalization"
+    )
+    mesh_filter = next(
+        item for item in tally.filters if isinstance(item, openmc.MeshFilter)
+    )
+
+    assert tally.scores == ["flux"]
+    assert tuple(mesh_filter.mesh.dimension) == (1, 1, 1)
+    assert tuple(mesh_filter.mesh.lower_left) == pytest.approx(
+        (7.0, -0.05, -0.05)
+    )
+    assert tuple(mesh_filter.mesh.upper_right) == pytest.approx(
+        (7.1, 0.05, 0.05)
+    )
+
+
 def test_gen_dd_reactor_geometry_and_detector_shields() -> None:
     openmc = pytest.importorskip("openmc")
     config = load_config(CONFIG_DIR / "genDD_reactor.yaml")

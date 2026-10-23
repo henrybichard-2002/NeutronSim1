@@ -163,6 +163,25 @@ physical neutron emission rate when a source-rate-normalized result is needed.
 The run creates a statepoint HDF5 file, which can be analyzed with OpenMC's
 Python API.
 
+`config/gen_reactor_config_profile.yaml` is calibrated from the user-provided
+`normalization.surface_flux_n_cm2_s` value. Its reference component is
+`outer_cowling`; `normalization.sample_width_cm` defines a finite cube just
+outside the positive-x cowling surface, centered at the cathode midplane
+(z = 0). The cube's volume-averaged flux is used to infer the source-history
+rate that matches the configured reference flux. This is a finite-volume
+surface estimate, not a point value. The calibration scale is applied to
+fluxes, capture responses, reaction rates, and other rate-like plotted or
+reported tallies, including the He-3 CSV. Relative tally uncertainties remain
+dimensionless. Raw values in the OpenMC statepoint are unchanged and remain
+per source history.
+
+For this profile, the run summary also reports total integrated neutron
+production rate (NPR) in neutrons/s. It is the calibrated rate of primary
+source neutrons plus the neutron secondary-production tally; it includes
+material-produced secondary neutrons. The flux-normalization option is only
+enabled for this profile configuration; other YAML configurations retain their
+existing source-normalized output.
+
 Each config may also define a rectangular detector scoring volume (0.4 × 0.4 cm
 by 500 µm by default). Change `detector.x_cm`, `detector.y_cm`, and
 `detector.z_cm` to position it, or set `width_x_cm`, `width_y_cm`, and
@@ -179,6 +198,8 @@ heatmap. Spatial maps span the configured world radius,
 including vacuum; total-flux heatmaps include dotted, numerically labelled
 contours. Geometry figures show configured materials and components. Line
 profiles use the nearest mesh-bin center to the requested coordinate.
+Geometry XY/XZ figures use one shared color per material, list each material
+once in the legend, and omit individual component labels to keep the views clear.
 Matplotlib must be installed in the same OpenMC environment; the `.[plot]`
 extra above installs it.
 
@@ -359,23 +380,27 @@ The runner prints a post-run summary with track-length-weighted mean neutron
 energies and highest occupied energy-bin upper edges in each region, a
 world-boundary outward-current estimate, secondary neutron/photon production,
 and per-material reaction tallies. These are source-normalized Monte Carlo
-estimates, not exact integer particle counts. The energy summaries use 0.1 MeV
-bins from 0 to 20 MeV; the reported maximum is therefore a bin-edge estimate,
-not an event-by-event maximum. Per-material scattering energy loss is estimated
-from the incoming/outgoing energy-transfer tally using bin midpoints. The
-escaped-minus-primary comparison indicates net leakage relative to the source
-histories; it is not by itself a complete neutron conservation balance because
-absorption and secondary production must also be considered. The report's
-interaction scores, energy transfer, and secondary production help inspect
-those processes.
+estimates, not exact integer particle counts, unless a configuration provides
+flux normalization; in that case rate-like results are reported per second.
+The energy summaries use 0.1 MeV bins from 0 to 20 MeV; the reported maximum is
+therefore a bin-edge estimate, not an event-by-event maximum. Per-material
+scattering energy loss is estimated from the incoming/outgoing energy-transfer
+tally using bin midpoints. The escaped-minus-primary comparison indicates net
+leakage relative to the source histories; it is not by itself a complete
+neutron conservation balance because absorption and secondary production must
+also be considered. The report's interaction scores, energy transfer, and
+secondary production help inspect those processes.
 
 Runs create `he3_detector_spectra.csv` in the run output directory when the
 configuration includes He-3 gas. It contains one row per energy bin and
 detector, with bin bounds, volume-averaged neutron flux, He-3 (n,p) capture
-response, and their tally standard deviations. Values are source-normalized
-per MeV; neutron flux is additionally divided by the active He-3 volume. When
-plotting an existing statepoint with `iec-neutrons plot`, the CSV is written
-beside the plots.
+response, and their tally standard deviations. Values are per MeV; neutron
+flux is additionally divided by the active He-3 volume. Outputs are
+source-normalized unless the configuration enables flux normalization, in
+which case the CSV column names and values use physical per-second units and
+include the target flux and applied history-rate scale. When plotting an
+existing statepoint with `iec-neutrons plot`, the CSV is written beside the
+plots.
 
 The custom-source runner compiles
 [`custom_source.cpp`](src/iec_neutrons/custom_source.cpp) against the active

@@ -452,6 +452,32 @@ def build_model(config: SimulationConfig):
         detector_tally.scores = ["flux"]
         tallies.append(detector_tally)
 
+    if config.normalization is not None:
+        surface_component = next(
+            component
+            for component in config.geometry.components
+            if component.name == config.normalization.surface_component
+        )
+        center_x, center_y, _ = surface_component.center_cm
+        radius_cm = surface_component.dimensions_cm[0]
+        width_cm = config.normalization.sample_width_cm
+        surface_mesh = openmc.RegularMesh(name="surface_flux_reference")
+        surface_mesh.dimension = (1, 1, 1)
+        surface_mesh.lower_left = (
+            center_x + radius_cm,
+            center_y - width_cm / 2,
+            -width_cm / 2,
+        )
+        surface_mesh.upper_right = (
+            center_x + radius_cm + width_cm,
+            center_y + width_cm / 2,
+            width_cm / 2,
+        )
+        surface_flux_tally = openmc.Tally(name="flux_surface_normalization")
+        surface_flux_tally.filters = [openmc.MeshFilter(surface_mesh)]
+        surface_flux_tally.scores = ["flux"]
+        tallies.append(surface_flux_tally)
+
     return openmc.Model(geometry=geometry, materials=list(materials.values()), settings=settings, tallies=tallies)
 
 

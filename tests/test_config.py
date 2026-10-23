@@ -147,6 +147,10 @@ def test_gen_reactor_config_profile_loads_with_cathode_aligned_source() -> None:
     assert config.custom_source is not None
     assert config.custom_source.cathode_radius_cm == 0.51
     assert config.custom_source.reactor_centers_cm == ((0.0, 0.0),)
+    assert config.normalization is not None
+    assert config.normalization.surface_flux_n_cm2_s == 2.5e6
+    assert config.normalization.surface_component == "outer_cowling"
+    assert config.normalization.sample_width_cm == 0.1
     vacuum = next(
         component
         for component in config.geometry.components

@@ -113,6 +113,13 @@ class SettingsConfig:
 
 
 @dataclass(frozen=True)
+class FluxNormalizationConfig:
+    surface_flux_n_cm2_s: float
+    surface_component: str
+    sample_width_cm: float
+
+
+@dataclass(frozen=True)
 class TallyConfig:
     energy_bins_mev: tuple[float, ...]
 
@@ -140,6 +147,7 @@ class SimulationConfig:
     visualization: VisualizationConfig
     physics: PhysicsConfig
     custom_source: CustomSourceConfig | None = None
+    normalization: FluxNormalizationConfig | None = None
 
 
 def _mapping(value: Any, path: str) -> dict[str, Any]:
@@ -193,7 +201,7 @@ def load_config(path: str | Path) -> SimulationConfig:
     _keys(
         root,
         {"source", "geometry", "materials", "settings", "tally"},
-        {"visualization", "detector", "physics", "custom_source"},
+        {"visualization", "detector", "physics", "custom_source", "normalization"},
         "configuration",
     )
 
@@ -783,6 +791,84 @@ def load_config(path: str | Path) -> SimulationConfig:
                 "custom_source reactor source volumes must fit inside geometry.world_radius_cm"
             )
 
+    normalization = None
+    if "normalization" in root:
+        normalization_data = _mapping(root["normalization"], "normalization")
+        _keys(
+            normalization_data,
+            {"surface_flux_n_cm2_s", "surface_component", "sample_width_cm"},
+            set(),
+            "normalization",
+        )
+        surface_flux = _number(
+            normalization_data["surface_flux_n_cm2_s"],
+            "normalization.surface_flux_n_cm2_s",
+            minimum=0,
+            exclusive=True,
+        )
+        surface_component_name = normalization_data["surface_component"]
+        if not isinstance(surface_component_name, str) or not surface_component_name.strip():
+            raise ConfigError("normalization.surface_component must be a component name")
+        sample_width = _number(
+            normalization_data["sample_width_cm"],
+            "normalization.sample_width_cm",
+            minimum=0,
+            exclusive=True,
+        )
+        surface_component = next(
+            (
+                component
+                for component in components
+                if component.name == surface_component_name
+            ),
+            None,
+        )
+        if surface_component is None:
+            raise ConfigError(
+                "normalization.surface_component must name a configured component"
+            )
+        if (
+            surface_component.shape != "cylinder"
+            or surface_component.axis != "z"
+            or surface_component.material == "void"
+        ):
+            raise ConfigError(
+                "normalization.surface_component must be a filled z-axis cylinder"
+            )
+        if surface_component.center_cm[2] - surface_component.half_extents_cm[2] > 0.0 or (
+            surface_component.center_cm[2] + surface_component.half_extents_cm[2] < 0.0
+        ):
+            raise ConfigError(
+                "normalization surface component must span the cathode midplane z=0"
+            )
+        reactor_centers = (
+            custom_source.reactor_centers_cm
+            if custom_source is not None
+            else ((0.0, 0.0),)
+        )
+        if len(reactor_centers) != 1 or not all(
+            math.isclose(surface_component.center_cm[index], reactor_centers[0][index])
+            for index in (0, 1)
+        ):
+            raise ConfigError(
+                "surface-flux normalization requires one reactor centered on the "
+                "surface component axis"
+            )
+        radius_cm = surface_component.dimensions_cm[0]
+        if math.sqrt(
+            (abs(surface_component.center_cm[0]) + radius_cm + sample_width) ** 2
+            + (abs(surface_component.center_cm[1]) + sample_width / 2) ** 2
+            + (sample_width / 2) ** 2
+        ) >= world_radius:
+            raise ConfigError(
+                "normalization sampling volume must fit inside geometry.world_radius_cm"
+            )
+        normalization = FluxNormalizationConfig(
+            surface_flux_n_cm2_s=surface_flux,
+            surface_component=surface_component_name,
+            sample_width_cm=sample_width,
+        )
+
     return SimulationConfig(
         source=source,
         detector=detector,
@@ -793,4 +879,5 @@ def load_config(path: str | Path) -> SimulationConfig:
         visualization=visualization,
         physics=physics,
         custom_source=custom_source,
+        normalization=normalization,
     )

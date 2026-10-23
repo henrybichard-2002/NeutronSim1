@@ -8,6 +8,7 @@ import sys
 import warnings
 
 from .config import SimulationConfig
+from .diagnostics import calculate_flux_calibration
 
 
 @dataclass(frozen=True)
@@ -17,7 +18,7 @@ class PlotStyle:
     spatial_cmap: str = "gist_ncar"
     energy_cmap: str = "turbo"
     uncertainty_cmap: str = "gnuplot2"
-    geometry_cmap: str = "tab10"
+    geometry_cmap: str = "tab20"
     spectrum_cmap: str = "tab10"
     spectrum_color: str = "tab:blue"
     spatial_xscale: str = "linear"
@@ -89,8 +90,14 @@ def plot_results(
         for component in config.geometry.components
         if component.score_spectrum
     )
+    if config.normalization is not None:
+        expected_names.add("flux_surface_normalization")
 
     with openmc.StatePoint(statepoint_file) as statepoint:
+        calibration = calculate_flux_calibration(statepoint, config)
+        flux_scale = (
+            calibration.scale_histories_s if calibration is not None else 1.0
+        )
         available_names = {tally.name for tally in statepoint.tallies.values()}
         missing = expected_names - available_names
         if missing:
@@ -119,6 +126,7 @@ def plot_results(
         flux_maps = {
             view: _mesh_values(map_tallies[f"flux_{view}"], view, 1, np)[..., 0]
             / map_cell_volumes_cm3[view]
+            * flux_scale
             for view in ("xy", "xz")
         }
         flux_std_devs = {
@@ -126,6 +134,7 @@ def plot_results(
                 map_tallies[f"flux_{view}"], view, 1, np, value="std_dev"
             )[..., 0]
             / map_cell_volumes_cm3[view]
+            * flux_scale
             for view in ("xy", "xz")
         }
         energy_maps = {
@@ -136,6 +145,7 @@ def plot_results(
                 np,
             )
             / map_cell_volumes_cm3[view]
+            * flux_scale
             for view in ("xy", "xz")
         }
         spectra = {}
@@ -145,16 +155,16 @@ def plot_results(
         if "flux_spectrum_source" in available_names:
             spectra["Source volume"] = _spectrum_values(
                 statepoint.get_tally(name="flux_spectrum_source"), np
-            )
+            ) * flux_scale
             spectra["Source cavity outside source volume"] = _spectrum_values(
                 statepoint.get_tally(name="flux_spectrum_source_cavity"), np
-            )
+            ) * flux_scale
         else:
             spectra[
                 "Source cavity (legacy tally; includes source volume)"
             ] = _spectrum_values(
                 statepoint.get_tally(name="flux_spectrum_source_cavity"), np
-            )
+            ) * flux_scale
             warnings.warn(
                 "This statepoint predates the separate source-volume tally; "
                 "its source spectrum cannot be separated from the cavity. "
@@ -165,7 +175,7 @@ def plot_results(
         for layer in config.geometry.layers:
             spectra[layer.name] = _spectrum_values(
                 statepoint.get_tally(name=f"flux_spectrum_{layer.name}"), np
-            )
+            ) * flux_scale
         for component in config.geometry.components:
             if component.material == "void":
                 continue
@@ -177,7 +187,7 @@ def plot_results(
             if flux_tally_name in available_names:
                 spectra[f"{component.name} (He-3 gas)"] = _spectrum_values(
                     statepoint.get_tally(name=flux_tally_name), np
-                )
+                ) * flux_scale
 
             neutron_tally_name = f"he3_neutron_spectrum_{component.name}"
             response_tally_name = f"he3_n_p_spectrum_{component.name}"
@@ -256,11 +266,11 @@ def plot_results(
             neutron_flux = np.asarray(
                 neutron_tally.get_values(scores=["flux"], value="mean"),
                 dtype=float,
-            ).reshape(-1)
+            ).reshape(-1) * flux_scale
             capture_response = np.asarray(
                 response_tally.get_values(scores=["(n,p)"], value="mean"),
                 dtype=float,
-            ).reshape(-1)
+            ).reshape(-1) * flux_scale
             if (
                 neutron_flux.size != len(neutron_edges_mev) - 1
                 or capture_response.size != len(response_edges_mev) - 1
@@ -333,7 +343,7 @@ def plot_results(
             axial_capture = np.asarray(
                 axial_tally.get_values(scores=["(n,p)"], value="mean"),
                 dtype=float,
-            ).reshape(-1)
+            ).reshape(-1) * flux_scale
             expected_size = axial_bin_count * (len(axial_edges_mev) - 1)
             if axial_capture.size != expected_size:
                 raise ValueError(
@@ -391,7 +401,7 @@ def plot_results(
                 )
             survey_spectra[component.name] = (
                 edges_mev,
-                values / volume_cm3 / np.diff(edges_mev),
+                values / volume_cm3 / np.diff(edges_mev) * flux_scale,
             )
         detector_available = "detector_energy_spectrum" in available_names
         detector_mean = None
@@ -404,10 +414,15 @@ def plot_results(
                 * config.detector.width_y_cm
                 * config.detector.thickness_z_cm
             )
-            detector_mean = _spectrum_values(detector_tally, np) / detector_volume_cm3
+            detector_mean = (
+                _spectrum_values(detector_tally, np)
+                / detector_volume_cm3
+                * flux_scale
+            )
             detector_std_dev = (
                 _spectrum_values(detector_tally, np, value="std_dev")
                 / detector_volume_cm3
+                * flux_scale
             )
         elif config.detector.enabled:
             warnings.warn(
@@ -420,6 +435,15 @@ def plot_results(
     radius = config.geometry.world_radius_cm
     total_edges = np.asarray(config.tally.energy_bins_mev)
     map_edges = np.asarray(config.visualization.energy_bins_mev)
+    normalized = calibration is not None
+    flux_units = (
+        "n cm$^{-2}$ s$^{-1}$"
+        if normalized
+        else "cm$^{-2}$ per source neutron"
+    )
+    track_length_units = (
+        "cm s$^{-1}$" if normalized else "cm per source neutron"
+    )
     paths: list[Path] = []
 
     for view in ("xy", "xz"):
@@ -459,7 +483,7 @@ def plot_results(
                 total_flux.T,
                 extent,
                 f"{orientation}: total flux, {slice_description}",
-                "Flux (cm$^{-2}$ per source neutron)",
+                f"Flux ({flux_units})",
                 destination / f"flux_{view}.png",
                 config,
                 view,
@@ -527,7 +551,7 @@ def plot_results(
             spectra,
             total_edges,
             "Region-integrated energy spectra",
-            "Track length (cm per source neutron)",
+            f"Track length ({track_length_units})",
             destination / "energy_spectra_by_region.png",
             plt,
             PLOT_STYLE,
@@ -540,6 +564,7 @@ def plot_results(
                 destination / "survey_region_neutron_spectra.png",
                 plt,
                 np,
+                normalized,
             )
         )
 
@@ -569,6 +594,7 @@ def plot_results(
                 / f"he3_detector_spectrum_{component_name}_log.png",
                 plt,
                 PLOT_STYLE,
+                normalized,
             )
         )
         if component_name in he3_axial_capture_responses:
@@ -586,6 +612,7 @@ def plot_results(
                     plt,
                     LogNorm,
                     PLOT_STYLE,
+                    normalized,
                 )
             )
 
@@ -1343,7 +1370,11 @@ def _plot_energy_map(
         figure.colorbar(
             image,
             ax=axes.ravel().tolist(),
-            label="Flux (cm$^{-2}$ per source neutron)",
+            label=(
+                "Flux (n cm$^{-2}$ s$^{-1}$)"
+                if config.normalization is not None
+                else "Flux (cm$^{-2}$ per source neutron)"
+            ),
             shrink=0.85,
         )
     figure.savefig(str(path), dpi=180)
@@ -1409,7 +1440,12 @@ def _plot_marginals(
     if style.marginal_ylim is not None:
         axes[0].set_ylim(*style.marginal_ylim)
     axes[0].set_xlabel("x (cm)")
-    axes[0].set_ylabel("Flux (cm$^{-2}$ per source neutron)")
+    flux_units = (
+        "n cm$^{-2}$ s$^{-1}$"
+        if config.normalization is not None
+        else "cm$^{-2}$ per source neutron"
+    )
+    axes[0].set_ylabel(f"Flux ({flux_units})")
     axes[0].set_title(f"x profile {first_description}")
     if config.detector.enabled:
         axes[0].axvline(
@@ -1430,7 +1466,7 @@ def _plot_marginals(
     if style.marginal_ylim is not None:
         axes[1].set_ylim(*style.marginal_ylim)
     axes[1].set_xlabel(second_axis_label)
-    axes[1].set_ylabel("Flux (cm$^{-2}$ per source neutron)")
+    axes[1].set_ylabel(f"Flux ({flux_units})")
     axes[1].set_title(f"{second_axis_label[0]} profile {second_description}")
     if config.detector.enabled:
         axes[1].axvline(
@@ -1448,7 +1484,7 @@ def _plot_marginals(
     return path
 
 
-def _plot_survey_spectra(spectra, path, plt, np) -> Path:
+def _plot_survey_spectra(spectra, path, plt, np, normalized: bool) -> Path:
     figure, axis = plt.subplots(figsize=(10, 6), constrained_layout=True)
     inset = axis.inset_axes([0.08, 0.54, 0.4, 0.4])
     main_values = []
@@ -1480,7 +1516,11 @@ def _plot_survey_spectra(spectra, path, plt, np) -> Path:
     axis.set_xscale("linear")
     _set_spectrum_yscale(axis, main_values, "log", np)
     axis.set_xlabel("Neutron energy (MeV)")
-    axis.set_ylabel("Track length density (cm$^{-2}$ per source neutron per MeV)")
+    axis.set_ylabel(
+        "Neutron flux (n cm$^{-2}$ s$^{-1}$ MeV$^{-1}$)"
+        if normalized
+        else "Track length density (cm$^{-2}$ per source neutron per MeV)"
+    )
     axis.set_xlim(1.0, 16.0)
     axis.set_title("Neutron spectra at the four fixed survey regions")
     axis.grid(True, which="both", alpha=0.25)
@@ -1564,7 +1604,11 @@ def _plot_detector_spectrum(
     if style.spectrum_ylim is not None:
         axis.set_ylim(*style.spectrum_ylim)
     axis.set_xlabel("Neutron energy (MeV)")
-    axis.set_ylabel("Volume-averaged flux (cm$^{-2}$ per source neutron)")
+    axis.set_ylabel(
+        "Volume-averaged flux (n cm$^{-2}$ s$^{-1}$)"
+        if config.normalization is not None
+        else "Volume-averaged flux (cm$^{-2}$ per source neutron)"
+    )
     detector_dimensions = (
         config.detector.width_x_cm,
         config.detector.width_y_cm,
@@ -1602,6 +1646,7 @@ def _plot_he3_detector_spectrum(
     path,
     plt,
     style: PlotStyle,
+    normalized: bool,
 ) -> Path:
     import numpy as np
 
@@ -1648,12 +1693,19 @@ def _plot_he3_detector_spectrum(
     )
     axis.set_xlabel("Incident neutron energy (MeV)")
     axis.set_ylabel(
-        "Volume-averaged neutron flux "
-        "(cm$^{-2}$ source neutron$^{-1}$ MeV$^{-1}$)",
+        (
+            "Volume-averaged neutron flux "
+            "(n cm$^{-2}$ s$^{-1}$ MeV$^{-1}$)"
+            if normalized
+            else "Volume-averaged neutron flux "
+            "(cm$^{-2}$ source neutron$^{-1}$ MeV$^{-1}$)"
+        ),
         color=flux_color,
     )
     capture_axis.set_ylabel(
-        "He-3 (n,p) reactions per source neutron per MeV",
+        "He-3 (n,p) reactions s$^{-1}$ MeV$^{-1}$"
+        if normalized
+        else "He-3 (n,p) reactions per source neutron per MeV",
         color=capture_color,
     )
     axis.tick_params(axis="y", labelcolor=flux_color)
@@ -1752,6 +1804,7 @@ def _plot_he3_capture_heatmap(
     plt,
     LogNorm,
     style: PlotStyle,
+    normalized: bool,
 ) -> Path:
     import numpy as np
 
@@ -1793,8 +1846,13 @@ def _plot_he3_capture_heatmap(
         )
         colorbar = figure.colorbar(color_mesh, ax=axis, pad=0.02)
         colorbar.set_label(
-            "He-3 capture response density "
-            "(reactions source neutron$^{-1}$ MeV$^{-1}$ cm$^{-1}$)"
+            (
+                "He-3 capture rate density "
+                "(reactions s$^{-1}$ MeV$^{-1}$ cm$^{-1}$)"
+                if normalized
+                else "He-3 capture response density "
+                "(reactions source neutron$^{-1}$ MeV$^{-1}$ cm$^{-1}$)"
+            )
         )
     else:
         axis.text(
@@ -1842,14 +1900,14 @@ def _set_spectrum_yscale(axis, datasets, requested_scale: str, np) -> bool:
 def _material_colors(config: SimulationConfig, style: PlotStyle):
     import matplotlib.pyplot as plt
 
-    palette = plt.get_cmap(style.geometry_cmap)
     names = list(
         dict.fromkeys(
             [layer.material for layer in config.geometry.layers]
             + [component.material for component in config.geometry.components]
         )
     )
-    return {name: palette(index % 10) for index, name in enumerate(names)}
+    palette = plt.get_cmap(style.geometry_cmap, max(len(names), 1))
+    return {name: palette(index) for index, name in enumerate(names)}
 
 
 def _geometry_legend(config: SimulationConfig, Patch, colors):
@@ -1863,24 +1921,11 @@ def _geometry_legend(config: SimulationConfig, Patch, colors):
     ]
     entries.extend(
         Patch(
-            facecolor=colors[layer.material],
+            facecolor=colors[material],
             edgecolor="black",
-            label=(
-                f"{index}. {layer.name}: {layer.material}, "
-                f"{layer.thickness_cm * 10:g} mm"
-            ),
+            label=f"Material: {material}",
         )
-        for index, layer in enumerate(config.geometry.layers, start=1)
-    )
-    entries.extend(
-        Patch(
-            facecolor=colors[component.material],
-            edgecolor="black",
-            label=f"{index}. {component.name}: {component.material} ({component.shape})",
-        )
-        for index, component in enumerate(
-            config.geometry.components, start=len(config.geometry.layers) + 1
-        )
+        for material in colors
     )
     entries.extend(
         (
@@ -2009,12 +2054,4 @@ def _add_component_patches(axis, config, view, Circle, Rectangle, colors):
                 linewidth=0.8,
                 alpha=0.8,
             )
-        )
-        axis.text(
-            component.center_cm[0],
-            component.center_cm[1 if view == "xy" else 2],
-            f"{component.name}\n{component.material}",
-            ha="center",
-            va="center",
-            fontsize=7,
         )

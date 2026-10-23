@@ -4,7 +4,6 @@
 # Weight fractions were converted to normalized element atom fractions for OpenMC add_element().
 # cathode_inner_radius_cm is omitted because the existing compiled-source schema uses cathode_radius_cm.
 source:
-source:
   radius_cm: 4.15
   height_cm: 35.0
   energy_mev: 14.1
@@ -25,6 +24,10 @@ custom_source:
   reactor_centers_cm:
   - - 0.0
     - 0.0
+normalization:
+  surface_flux_n_cm2_s: 2500000.0
+  surface_component: outer_cowling
+  sample_width_cm: 0.1
 geometry:
   cavity:
     radius_cm: 4.15
@@ -550,7 +553,7 @@ materials:
       F: 0.46057324775116654
 settings:
   particles: 100000
-  batches: 100
+  batches: 20
   inactive: 10
   seed: 12345
 tally:
@@ -663,7 +666,7 @@ tally:
   - 20.0
 visualization:
   mesh_bins: 256
-  voxel_bins: 128
+  voxel_bins: 512
   slice_thickness_cm: 0.4
   energy_bins_mev:
   - 0.0

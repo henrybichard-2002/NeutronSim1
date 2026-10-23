@@ -20,13 +20,6 @@ custom_source:
     - [0.0, 1.0]
     - [1.0, 1.0]
 
-detector:
-  x_cm: 20.0
-  y_cm: 0.0
-  z_cm: 0.0
-  width_x_cm: 0.4
-  width_y_cm: 0.4
-  thickness_z_cm: 0.05
 
 geometry:
   cavity:
@@ -230,7 +223,7 @@ materials:
 
 settings:
   particles: 10000
-  batches: 100
+  batches: 20
   inactive: 0
   seed: 12345
 

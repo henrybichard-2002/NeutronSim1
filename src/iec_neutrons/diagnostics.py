@@ -6,13 +6,56 @@ import csv
 import math
 from pathlib import Path
 import sys
+from dataclasses import dataclass
 from typing import TextIO
 
 from .config import SimulationConfig
 
 
+@dataclass(frozen=True)
+class FluxCalibration:
+    target_flux_n_cm2_s: float
+    simulated_flux_cm2_source: float
+    scale_histories_s: float
+
+
 def _means(tally, score: str) -> list[float]:
     return [float(value) for value in tally.get_values(scores=[score], value="mean").reshape(-1)]
+
+
+def calculate_flux_calibration(
+    statepoint, config: SimulationConfig
+) -> FluxCalibration | None:
+    """Return the source-history rate that matches the configured surface flux."""
+    normalization = config.normalization
+    if normalization is None:
+        return None
+    try:
+        tally = statepoint.get_tally(name="flux_surface_normalization")
+    except KeyError as exc:
+        raise ValueError(
+            "Statepoint is missing the surface-flux normalization tally; "
+            "rerun with the current model."
+        ) from exc
+    values = _means(tally, "flux")
+    if len(values) != 1:
+        raise ValueError(
+            "Surface-flux normalization tally must contain exactly one mesh bin"
+        )
+    width_cm = normalization.sample_width_cm
+    simulated_flux = values[0] / width_cm**3
+    if not math.isfinite(simulated_flux) or simulated_flux <= 0:
+        raise ValueError(
+            "Surface-flux normalization tally must have a positive finite mean"
+        )
+    scale = normalization.surface_flux_n_cm2_s / simulated_flux
+    if not math.isfinite(scale) or scale <= 0:
+        raise ValueError("Surface-flux normalization produced an invalid scale")
+    return FluxCalibration(
+        target_flux_n_cm2_s=normalization.surface_flux_n_cm2_s,
+        simulated_flux_cm2_source=simulated_flux,
+        scale_histories_s=scale,
+    )
 
 
 def _spectrum_summary(values: list[float], edges_mev: tuple[float, ...]):
@@ -82,18 +125,38 @@ def export_he3_spectra_csv(
 
     destination = Path(output_path).resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
+    normalized = config.normalization is not None
     fieldnames = (
         "detector",
         "energy_min_mev",
         "energy_max_mev",
         "energy_midpoint_mev",
-        "neutron_flux_mean_cm-2_source-1_MeV-1",
-        "neutron_flux_std_dev_cm-2_source-1_MeV-1",
-        "he3_np_capture_mean_reactions_source-1_MeV-1",
-        "he3_np_capture_std_dev_reactions_source-1_MeV-1",
+        (
+            "neutron_flux_mean_n_cm-2_s-1_MeV-1"
+            if normalized
+            else "neutron_flux_mean_cm-2_source-1_MeV-1"
+        ),
+        (
+            "neutron_flux_std_dev_n_cm-2_s-1_MeV-1"
+            if normalized
+            else "neutron_flux_std_dev_cm-2_source-1_MeV-1"
+        ),
+        (
+            "he3_np_capture_mean_reactions_s-1_MeV-1"
+            if normalized
+            else "he3_np_capture_mean_reactions_source-1_MeV-1"
+        ),
+        (
+            "he3_np_capture_std_dev_reactions_s-1_MeV-1"
+            if normalized
+            else "he3_np_capture_std_dev_reactions_source-1_MeV-1"
+        ),
+        *(("surface_flux_target_n_cm-2_s-1", "normalization_scale_histories_s-1") if normalized else ()),
     )
 
     with openmc.StatePoint(str(statepoint_path)) as statepoint:
+        calibration = calculate_flux_calibration(statepoint, config)
+        scale = calibration.scale_histories_s if calibration is not None else 1.0
         rows = []
         available_names = {
             tally.name for tally in statepoint.tallies.values()
@@ -195,14 +258,27 @@ def export_he3_spectra_csv(
                         "energy_midpoint_mev": float((lower + upper) / 2),
                         fieldnames[4]: float(neutron_mean[index])
                         / volume_cm3
-                        / bin_width,
+                        / bin_width
+                        * scale,
                         fieldnames[5]: float(neutron_std_dev[index])
                         / volume_cm3
-                        / bin_width,
-                        fieldnames[6]: float(response_mean[index]) / bin_width,
-                        fieldnames[7]: float(response_std_dev[index]) / bin_width,
+                        / bin_width
+                        * scale,
+                        fieldnames[6]: float(response_mean[index])
+                        / bin_width
+                        * scale,
+                        fieldnames[7]: float(response_std_dev[index])
+                        / bin_width
+                        * scale,
                     }
                 )
+                if calibration is not None:
+                    rows[-1].update(
+                        {
+                            "surface_flux_target_n_cm-2_s-1": calibration.target_flux_n_cm2_s,
+                            "normalization_scale_histories_s-1": calibration.scale_histories_s,
+                        }
+                    )
 
     with destination.open("w", encoding="utf-8", newline="") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
@@ -226,8 +302,24 @@ def print_run_summary(
     statepoint = openmc.StatePoint(str(statepoint_path))
     try:
         source_histories = config.settings.particles * config.settings.batches
+        calibration = calculate_flux_calibration(statepoint, config)
+        scale = calibration.scale_histories_s if calibration is not None else 1.0
         print("\nNeutron transport summary", file=file)
         print(f"  Source histories: {source_histories:,}", file=file)
+        if calibration is not None:
+            print(
+                "  Surface flux calibration: "
+                f"{calibration.target_flux_n_cm2_s:,.6g} n cm-2 s-1 at "
+                f"{config.normalization.surface_component} (positive-x surface, "
+                "cathode midplane)",
+                file=file,
+            )
+            print(
+                "  Simulated reference flux: "
+                f"{calibration.simulated_flux_cm2_source:.6g} cm-2/source history; "
+                f"scale: {scale:.6g} source histories/s",
+                file=file,
+            )
         print(
             "  Spectral means are track-length weighted; maximum energies are "
             "the upper edge of the highest occupied 0.1 MeV bin.",
@@ -261,11 +353,20 @@ def print_run_summary(
         net_neutrons = expected_leakage - source_histories
         net_percent = 100 * (leakage_per_source - 1)
         print("\n  World-boundary neutron balance:", file=file)
-        print(
-            f"    Outward leakage: {leakage_per_source:.6g} neutrons/source "
-            f"history (about {expected_leakage:,.1f} over this run)",
-            file=file,
-        )
+        if calibration is None:
+            print(
+                f"    Outward leakage: {leakage_per_source:.6g} neutrons/source "
+                f"history (about {expected_leakage:,.1f} over this run)",
+                file=file,
+            )
+        else:
+            leakage_rate = leakage_per_source * scale
+            net_neutrons = (leakage_per_source - 1.0) * scale
+            print(
+                f"    Outward leakage: {leakage_rate:.6g} neutrons/s "
+                f"({leakage_per_source:.6g} per source history)",
+                file=file,
+            )
         leakage_summary = _spectrum_summary(leakage_spectrum, edges_mev)
         if leakage_summary is not None:
             print(
@@ -273,11 +374,18 @@ def print_run_summary(
                 f"maximum-bin upper edge {leakage_summary[1]:.2f} MeV",
                 file=file,
             )
-        print(
-            f"    Escaped minus source primaries: {net_neutrons:+,.1f} "
-            f"({net_percent:+.3f}%)",
-            file=file,
-        )
+        if calibration is None:
+            print(
+                f"    Escaped minus source primaries: {net_neutrons:+,.1f} "
+                f"({net_percent:+.3f}%)",
+                file=file,
+            )
+        else:
+            print(
+                f"    Escaped minus source primaries: {net_neutrons:+,.6g} "
+                f"neutrons/s ({net_percent:+.3f}%)",
+                file=file,
+            )
 
         production = statepoint.get_tally(name="secondary_particle_production")
         production_filter = next(
@@ -293,12 +401,26 @@ def print_run_summary(
             production_by_particle[particle] = (
                 production_by_particle.get(particle, 0.0) + value
             )
-        print("\n  Secondary particle production per source history:", file=file)
+        production_unit = (
+            "particles/s"
+            if calibration is not None
+            else "particles/source history"
+        )
+        print(f"\n  Secondary particle production ({production_unit}):", file=file)
         for particle, value in sorted(production_by_particle.items()):
             if particle == "photon" and not config.physics.photon_transport:
                 print("    photon: transport disabled in this configuration", file=file)
                 continue
-            print(f"    {particle}: {value:.6g}", file=file)
+            print(f"    {particle}: {value * scale:.6g}", file=file)
+        if calibration is not None:
+            integrated_npr = (
+                1.0 + production_by_particle.get("neutron", 0.0)
+            ) * scale
+            print(
+                "  Total integrated NPR (primary + material-secondary neutrons): "
+                f"{integrated_npr:.6g} neutrons/s",
+                file=file,
+            )
 
         for component in config.geometry.components:
             if component.material == "void":
@@ -312,7 +434,12 @@ def print_run_summary(
             reaction_yield = sum(_means(response, "(n,p)"))
             print(
                 f"\n  He-3 detector {component.name}: "
-                f"(n,p) response={reaction_yield:.6g} reactions/source history",
+                f"(n,p) response={reaction_yield * scale:.6g} "
+                + (
+                    "reactions/s"
+                    if calibration is not None
+                    else "reactions/source history"
+                ),
                 file=file,
             )
             print(
@@ -338,13 +465,17 @@ def print_run_summary(
             for component in config.geometry.components
             if component.material != "void"
         ]
-        print("\n  Neutron interaction scores per source history:", file=file)
+        interaction_unit = (
+            "per second" if calibration is not None else "per source history"
+        )
+        print(f"\n  Neutron interaction scores {interaction_unit}:", file=file)
         for material_name in material_names:
             tally = statepoint.get_tally(
                 name=f"neutron_interactions_{material_name}"
             )
             rates = [
-                (score, _means(tally, score)[0]) for score in interaction_scores
+                (score, _means(tally, score)[0] * scale)
+                for score in interaction_scores
             ]
             active = [(score, value) for score, value in rates if value > 0]
             if active:
@@ -358,11 +489,14 @@ def print_run_summary(
             )
             energy_change_mev = _net_scatter_energy_change(
                 energy_transfer, openmc
+            ) * scale
+            energy_unit = (
+                "MeV/s" if calibration is not None else "MeV/source history"
             )
             print(
                 f"    {material_name}: {formatted}; "
                 f"net scatter energy loss={energy_change_mev:.5g} "
-                "MeV/source history (bin-midpoint estimate)",
+                f"{energy_unit} (bin-midpoint estimate)",
                 file=file,
             )
     finally:
