@@ -51,6 +51,7 @@ neutron nuclides and thermal-scattering tables used by that configuration:
 | `genDD_reactor.yaml` | `config/cross_sections/genDD_reactor.xml` |
 | `genDT_borated_jacket.yaml` | `config/cross_sections/genDT_borated_jacket.xml` |
 | `genDT_dual_borated_jacket.yaml` | `config/cross_sections/genDT_dual_borated_jacket.xml` |
+| `gen_reactor_config_profile.yaml` | `config/cross_sections/gen_reactor_config_profile.xml` |
 
 Each index has the same basename as its YAML configuration. Set
 `OPENMC_CROSS_SECTIONS` to the matching index before each run, for example:

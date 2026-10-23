@@ -139,6 +139,26 @@ def test_gen_dd_reactor_loads_as_pure_deuterium() -> None:
     ) == (1.0, 1.0, 1.0)
 
 
+def test_gen_reactor_config_profile_loads_with_cathode_aligned_source() -> None:
+    config = load_config(CONFIG_DIR / "gen_reactor_config_profile.yaml")
+
+    assert config.source.radius_cm == 4.15
+    assert config.source.height_cm == 35.0
+    assert config.custom_source is not None
+    assert config.custom_source.cathode_radius_cm == 0.51
+    assert config.custom_source.reactor_centers_cm == ((0.0, 0.0),)
+    vacuum = next(
+        component
+        for component in config.geometry.components
+        if component.name == "main_reactor_vacuum_cavity"
+    )
+    assert vacuum.material == "void"
+    assert vacuum.center_cm[2] == pytest.approx(-3.825)
+    assert vacuum.dimensions_cm == pytest.approx((4.15, 58.95))
+    assert sum(config.materials["al6061"].elements.values()) == pytest.approx(1.0)
+    assert config.visualization.marginal_z_cm == 0.0
+
+
 @pytest.mark.parametrize(
     ("filename", "expected_centers"),
     [
