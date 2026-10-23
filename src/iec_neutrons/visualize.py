@@ -1452,6 +1452,34 @@ def _plot_marginals(
     return path
 
 
+SPECTRUM_MAX_MEV = 20.0
+SPECTRUM_RESOLUTION_MEV = 0.1
+INSET_MIN_MEV = 1.0e-9  # 0.001 eV
+INSET_MAX_MEV = 1.0e-2  # 10 keV
+
+
+def _rebin(edges, values, grid, np, density: bool):
+    """Rebin per-bin (or per-MeV density) values onto grid edges."""
+    edges = np.asarray(edges, dtype=float)
+    values = np.asarray(values, dtype=float)
+    totals = values * np.diff(edges) if density else values
+    cumulative = np.concatenate(([0.0], np.cumsum(totals)))
+    rebinned = np.diff(np.interp(grid, edges, cumulative))
+    rebinned[rebinned < 1.0e-9 * max(cumulative[-1], 1e-300)] = 0.0
+    return rebinned / np.diff(grid) if density else rebinned
+
+
+def _inset_slice(edges, values, np):
+    edges = np.asarray(edges, dtype=float)
+    keep = (edges[:-1] >= INSET_MIN_MEV * (1 - 1e-9)) & (
+        edges[1:] <= INSET_MAX_MEV * (1 + 1e-9)
+    )
+    index = np.flatnonzero(keep)
+    if index.size == 0:
+        return None
+    return edges[index[0] : index[-1] + 2], np.asarray(values)[index]
+
+
 def _plot_survey_spectra(
     spectra,
     path,
@@ -1464,77 +1492,69 @@ def _plot_survey_spectra(
     inset = axis.inset_axes([0.08, 0.54, 0.4, 0.4])
     source_axis = axis.twinx() if source_birth_spectrum is not None else None
     source_inset = inset.twinx() if source_birth_spectrum is not None else None
+    grid = np.linspace(
+        0.0,
+        SPECTRUM_MAX_MEV,
+        int(round(SPECTRUM_MAX_MEV / SPECTRUM_RESOLUTION_MEV)) + 1,
+    )
     main_values = []
     inset_values = []
     colors = plt.get_cmap("tab10")
     for index, (name, (edges, values)) in enumerate(spectra.items()):
         color = colors(index % 10)
-        main_start = int(np.searchsorted(edges, 1.0, side="left"))
-        main_end = int(np.searchsorted(edges, 16.0, side="left"))
-        main_slice = values[main_start:main_end]
-        axis.stairs(
-            main_slice,
-            edges[main_start : main_end + 1],
-            label=name,
-            linewidth=1.6,
-            color=color,
-        )
+        main_slice = _rebin(edges, values, grid, np, density=True)
+        axis.stairs(main_slice, grid, label=name, linewidth=1.6, color=color)
         main_values.append(main_slice)
-
-        inset_end = int(np.searchsorted(edges, 1.0, side="right")) - 1
-        low_energy_slice = values[1:inset_end]
-        inset.stairs(
-            low_energy_slice,
-            edges[1 : inset_end + 1],
-            linewidth=1.2,
-            color=color,
-        )
-        inset_values.append(low_energy_slice)
+        low = _inset_slice(edges, values, np)
+        if low is not None:
+            inset.stairs(low[1], low[0], linewidth=1.2, color=color)
+            inset_values.append(low[1])
     if source_birth_spectrum is not None:
         source_edges, source_values = source_birth_spectrum
-        main_start = int(np.searchsorted(source_edges, 1.0, side="left"))
-        main_end = int(np.searchsorted(source_edges, 16.0, side="left"))
-        source_inset_end = int(np.searchsorted(source_edges, 1.0, side="right")) - 1
         source_axis.stairs(
-            source_values[main_start:main_end],
-            source_edges[main_start : main_end + 1],
+            _rebin(source_edges, source_values, grid, np, density=True),
+            grid,
             label="Custom source birth spectrum",
             linewidth=1.8,
             color="black",
             linestyle="--",
         )
-        source_inset.stairs(
-            source_values[1 : source_inset_end],
-            source_edges[1 : source_inset_end + 1],
-            linewidth=1.4,
-            color="black",
-            linestyle="--",
-        )
+        low = _inset_slice(source_edges, source_values, np)
+        if low is not None:
+            source_inset.stairs(
+                low[1], low[0], linewidth=1.4, color="black", linestyle="--"
+            )
         source_axis.set_yscale("log")
         source_axis.set_ylabel("Birth probability per neutron per MeV")
         source_inset.set_yscale("log")
         source_inset.tick_params(axis="y", labelsize=6)
     axis.set_xscale("linear")
     _set_spectrum_yscale(axis, main_values, "log", np)
+    _limit_log_range(axis, main_values, np)
     axis.set_xlabel("Neutron energy (MeV)")
     axis.set_ylabel(
         "Neutron flux (n cm$^{-2}$ s$^{-1}$ MeV$^{-1}$)"
         if normalized
         else "Track length density (cm$^{-2}$ per source neutron per MeV)"
     )
-    axis.set_xlim(1.0, 16.0)
-    axis.set_title("Neutron spectra by region")
+    axis.set_xlim(0.0, SPECTRUM_MAX_MEV)
+    axis.set_title("Neutron spectra by region (0.1 MeV bins)")
     axis.grid(True, which="both", alpha=0.25)
     handles, labels = axis.get_legend_handles_labels()
     if source_axis is not None:
         source_handles, source_labels = source_axis.get_legend_handles_labels()
         handles.extend(source_handles)
         labels.extend(source_labels)
-    axis.legend(handles, labels)
+    axis.legend(
+        handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2,
+        fontsize="small",
+    )
     inset.set_xscale("log")
-    inset.set_xlim(edges[1], 1.0)
+    inset.set_xlim(INSET_MIN_MEV, INSET_MAX_MEV)
     _set_spectrum_yscale(inset, inset_values, "log", np)
-    inset.set_title("Below 1 MeV (log energy)", fontsize=8)
+    _limit_log_range(inset, inset_values, np)
+    inset.set_zorder(5)
+    inset.set_title("Thermal/epithermal: 0.001 eV–10 keV", fontsize=8)
     inset.set_xlabel("Neutron energy (MeV)", fontsize=7)
     inset.tick_params(axis="both", labelsize=7)
     inset.grid(True, which="both", alpha=0.25)
@@ -1558,13 +1578,38 @@ def _plot_spectrum(spectra, edges, title, ylabel, path, plt, style: PlotStyle) -
             for index in range(max(len(spectra), 1))
         ]
     )
-    for name, values in spectra.items():
-        axis.stairs(values, edges, label=name, linewidth=1.5)
-    has_positive_values = _set_spectrum_yscale(
-        axis, [*spectra.values()], style.spectrum_yscale, np
+    grid = np.linspace(
+        0.0,
+        SPECTRUM_MAX_MEV,
+        int(round(SPECTRUM_MAX_MEV / SPECTRUM_RESOLUTION_MEV)) + 1,
     )
-    axis.set_xscale(style.spectrum_xscale)
-    axis.set_xlim(*(style.spectrum_xlim or (edges[0], edges[-1])))
+    inset = axis.inset_axes([0.08, 0.54, 0.4, 0.4])
+    main_values = []
+    inset_values = []
+    for index, (name, values) in enumerate(spectra.items()):
+        line = plt.get_cmap(style.spectrum_cmap)(index % 10)
+        rebinned = _rebin(edges, values, grid, np, density=False)
+        axis.stairs(rebinned, grid, label=name, linewidth=1.5, color=line)
+        main_values.append(rebinned)
+        low = _inset_slice(edges, values, np)
+        if low is not None:
+            inset.stairs(low[1], low[0], linewidth=1.2, color=line)
+            inset_values.append(low[1])
+    has_positive_values = _set_spectrum_yscale(
+        axis, main_values, style.spectrum_yscale, np
+    )
+    axis.set_xscale("linear")
+    axis.set_xlim(0.0, SPECTRUM_MAX_MEV)
+    inset.set_xscale("log")
+    inset.set_xlim(INSET_MIN_MEV, INSET_MAX_MEV)
+    _set_spectrum_yscale(inset, inset_values, "log", np)
+    _limit_log_range(axis, main_values, np)
+    _limit_log_range(inset, inset_values, np)
+    inset.set_zorder(5)
+    inset.set_title("Thermal/epithermal: 0.001 eV–10 keV", fontsize=8)
+    inset.set_xlabel("Neutron energy (MeV)", fontsize=7)
+    inset.tick_params(axis="both", labelsize=7)
+    inset.grid(True, which="both", alpha=0.25)
     if style.spectrum_ylim is not None:
         axis.set_ylim(*style.spectrum_ylim)
     axis.set_xlabel("Neutron energy (MeV)")
@@ -1580,7 +1625,9 @@ def _plot_spectrum(spectra, edges, title, ylabel, path, plt, style: PlotStyle) -
             va="center",
         )
     axis.grid(True, which="both", alpha=0.25)
-    axis.legend()
+    axis.legend(
+        loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2, fontsize="small"
+    )
     figure.savefig(str(path), dpi=180)
     plt.close(figure)
     return path
@@ -1890,6 +1937,17 @@ def _plot_he3_capture_heatmap(
     figure.savefig(str(path), dpi=180)
     plt.close(figure)
     return path
+
+
+def _limit_log_range(axis, datasets, np, decades: float = 8.0) -> None:
+    """Keep log y-axes to a readable dynamic range below the peak."""
+    if axis.get_yscale() != "log":
+        return
+    positive = [values[values > 0] for values in datasets if np.any(values > 0)]
+    if not positive:
+        return
+    peak = max(float(values.max()) for values in positive)
+    axis.set_ylim(peak * 10.0 ** -decades, peak * 3.0)
 
 
 def _set_spectrum_yscale(axis, datasets, requested_scale: str, np) -> bool:

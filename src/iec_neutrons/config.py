@@ -247,8 +247,8 @@ def load_config(path: str | Path) -> SimulationConfig:
     cavity_height = _number(cavity_data["height_cm"], "geometry.cavity.height_cm", minimum=0, exclusive=True)
 
     raw_layers = geometry_data["layers"]
-    if not isinstance(raw_layers, list) or not raw_layers:
-        raise ConfigError("geometry.layers must be a non-empty list")
+    if not isinstance(raw_layers, list):
+        raise ConfigError("geometry.layers must be a list")
     layers: list[LayerConfig] = []
     names: set[str] = set()
     previous_radius = cavity_radius
@@ -328,7 +328,11 @@ def load_config(path: str | Path) -> SimulationConfig:
         not isinstance(background_material, str) or not background_material.strip()
     ):
         raise ConfigError("geometry.background_material must be a material name")
-    outermost = layers[-1]
+    outermost = (
+        layers[-1]
+        if layers
+        else LayerConfig("cavity", cavity_radius, 0.0, cavity_height, "")
+    )
     if world_height is None:
         if world_radius <= math.hypot(outermost.radius_cm, outermost.height_cm / 2):
             raise ConfigError("geometry.world_radius_cm must enclose the outermost cylinder")
