@@ -150,6 +150,9 @@ def test_gen_reactor_config_profile_loads_with_cathode_aligned_source() -> None:
     assert config.normalization.surface_flux_n_cm2_s == 2.5e6
     assert config.normalization.surface_component == "outer_cowling"
     assert config.normalization.sample_width_cm == 0.1
+    assert config.geometry.air_sphere_radius_cm == 100.0
+    assert config.geometry.world_radius_cm == 100.0
+    assert config.geometry.world_height_cm == 200.0
     vacuum = next(
         component
         for component in config.geometry.components
@@ -160,6 +163,22 @@ def test_gen_reactor_config_profile_loads_with_cathode_aligned_source() -> None:
     assert vacuum.dimensions_cm == pytest.approx((4.15, 58.95))
     assert sum(config.materials["al6061"].elements.values()) == pytest.approx(1.0)
     assert config.visualization.marginal_z_cm == 0.0
+    scored_components = {
+        component.name: component
+        for component in config.geometry.components
+        if component.score_spectrum
+    }
+    assert set(scored_components) == {
+        "spectrum_after_cowling_2cm_air",
+        "spectrum_cathode_parallel_20cm_from_reactor",
+        "spectrum_axial_z_minus_75cm",
+        "spectrum_axial_z_plus_75cm",
+    }
+    assert [probe.name for probe in config.spectral_probes] == [
+        "after_anode_aluminium",
+        "after_water_jacket",
+        "after_cowling_2cm_air",
+    ]
 
 
 @pytest.mark.parametrize(

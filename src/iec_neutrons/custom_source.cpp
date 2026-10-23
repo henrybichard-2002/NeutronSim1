@@ -1,12 +1,19 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
+#include <functional>
+#include <iomanip>
+#include <iostream>
+#include <iterator>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
+#include <unistd.h>
 
 #include "openmc/particle_data.h"
 #include "openmc/random_lcg.h"
@@ -63,6 +70,8 @@ struct Parameters {
   double source_strength {1.0};
   std::vector<ProfilePoint> neutral_profile {{0.0, 1.0}, {1.0, 1.0}};
   std::vector<Vec3> reactor_centers {{0.0, 0.0, 0.0}};
+  std::string source_spectrum_file;
+  std::vector<double> source_spectrum_bins_mev;
 };
 
 double dot(Vec3 a, Vec3 b)
@@ -196,7 +205,11 @@ Parameters parse_parameters(const std::string& text)
       return number;
     };
 
-    if (key == "r_anode_cm") result.anode_radius_cm = read_number();
+    if (key == "source_spectrum_file") result.source_spectrum_file = value;
+    else if (key == "source_spectrum_bins_mev") {
+      result.source_spectrum_bins_mev = parse_number_list(value);
+    }
+    else if (key == "r_anode_cm") result.anode_radius_cm = read_number();
     else if (key == "r_cathode_cm") result.cathode_radius_cm = read_number();
     else if (key == "half_height_cm") result.half_height_cm = read_number();
     else if (key == "voltage_kev") result.voltage_kev = read_number();
@@ -228,6 +241,19 @@ Parameters parse_parameters(const std::string& text)
       !(result.tritium_fraction < 1.0)) {
     throw std::invalid_argument(
       "Beam-beam mode requires deuterium ions; a zero tritium fraction is valid");
+  }
+  if (result.source_spectrum_file.empty() !=
+      result.source_spectrum_bins_mev.empty()) {
+    throw std::invalid_argument(
+      "Source spectrum recording requires both an output path and energy bins");
+  }
+  if (result.source_spectrum_bins_mev.size() == 1 ||
+      std::adjacent_find(
+        result.source_spectrum_bins_mev.begin(),
+        result.source_spectrum_bins_mev.end(),
+        std::greater_equal<double>()) != result.source_spectrum_bins_mev.end()) {
+    throw std::invalid_argument(
+      "Source spectrum energy bins must be strictly increasing");
   }
   return result;
 }
@@ -616,6 +642,33 @@ public:
         "The neutral density profile is zero throughout the beam-target region");
     }
     strength_ = parameters_.source_strength;
+    source_spectrum_bins_mev_ = parameters_.source_spectrum_bins_mev;
+    if (!source_spectrum_bins_mev_.empty()) {
+      source_spectrum_counts_.resize(source_spectrum_bins_mev_.size() - 1);
+    }
+  }
+
+  ~IecFusionSource() override
+  {
+    if (parameters_.source_spectrum_file.empty()) return;
+    const std::string path =
+      parameters_.source_spectrum_file + "." + std::to_string(getpid()) + ".csv";
+    std::ofstream output(path);
+    if (!output) {
+      std::cerr << "Could not write custom source spectrum to " << path << '\n';
+      return;
+    }
+    std::lock_guard<std::mutex> lock(source_spectrum_mutex_);
+    output << std::setprecision(17);
+    output << "energy_lower_mev,energy_upper_mev,neutron_count,"
+              "underflow_count,overflow_count\n";
+    for (size_t index = 0; index < source_spectrum_counts_.size(); ++index) {
+      output << source_spectrum_bins_mev_[index] << ','
+             << source_spectrum_bins_mev_[index + 1] << ','
+             << source_spectrum_counts_[index] << ','
+             << source_spectrum_underflow_ << ','
+             << source_spectrum_overflow_ << '\n';
+    }
   }
 
   openmc::SourceSite sample(uint64_t* seed) const override
@@ -660,7 +713,9 @@ public:
         static_cast<size_t>(random_unit(seed) * parameters_.reactor_centers.size()),
         parameters_.reactor_centers.size() - 1);
       event.position = event.position + parameters_.reactor_centers[center_index];
-      return make_neutron_site(seed, event);
+      auto site = make_neutron_site(seed, event);
+      record_source_energy(site.E / 1.0e6);
+      return site;
     }
     throw std::runtime_error(
       "Could not sample a neutron-producing fusion event after 1,000,000 trials; "
@@ -672,10 +727,36 @@ public:
   }
 
 private:
+  void record_source_energy(double energy_mev) const
+  {
+    if (source_spectrum_counts_.empty()) return;
+    std::lock_guard<std::mutex> lock(source_spectrum_mutex_);
+    if (energy_mev < source_spectrum_bins_mev_.front()) {
+      ++source_spectrum_underflow_;
+    } else if (energy_mev > source_spectrum_bins_mev_.back()) {
+      ++source_spectrum_overflow_;
+    } else {
+      auto upper = std::upper_bound(
+        source_spectrum_bins_mev_.begin(),
+        source_spectrum_bins_mev_.end(),
+        energy_mev);
+      const size_t index = upper == source_spectrum_bins_mev_.end()
+        ? source_spectrum_counts_.size() - 1
+        : static_cast<size_t>(
+            std::distance(source_spectrum_bins_mev_.begin(), upper) - 1);
+      ++source_spectrum_counts_[index];
+    }
+  }
+
   Parameters parameters_;
   double sigma_max_dt_;
   double sigma_max_dd_;
   double profile_max_;
+  std::vector<double> source_spectrum_bins_mev_;
+  mutable std::vector<uint64_t> source_spectrum_counts_;
+  mutable uint64_t source_spectrum_underflow_ {};
+  mutable uint64_t source_spectrum_overflow_ {};
+  mutable std::mutex source_spectrum_mutex_;
 };
 
 extern "C" std::unique_ptr<openmc::Source> openmc_create_source(

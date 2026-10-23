@@ -77,6 +77,12 @@ def build_model(config: SimulationConfig):
     component_source_tally = (
         config.custom_source is not None and config.normalization is not None
     )
+    air_sphere = (
+        openmc.Sphere(r=config.geometry.air_sphere_radius_cm)
+        if config.geometry.air_sphere_radius_cm is not None
+        else None
+    )
+    air_sphere_region = -air_sphere if air_sphere is not None else None
     global_component_regions = [
         region
         for component, region in zip(
@@ -126,6 +132,8 @@ def build_model(config: SimulationConfig):
     material_cells = []
     for layer in config.geometry.layers:
         layer_region = cylinder_region(layer.radius_cm, layer.height_cm)
+        if air_sphere_region is not None:
+            layer_region &= air_sphere_region
         layer_cell_region = layer_region & ~previous_region
         layer_regions[layer.name] = layer_cell_region
         if global_component_union is not None:
@@ -147,7 +155,24 @@ def build_model(config: SimulationConfig):
         tally_cells.append((layer.name, cell))
         previous_region = layer_region
 
-    boundary = openmc.Sphere(r=config.geometry.world_radius_cm, boundary_type="vacuum")
+    if config.geometry.world_height_cm is None:
+        boundary = openmc.Sphere(
+            r=config.geometry.world_radius_cm, boundary_type="vacuum"
+        )
+        world_region = -boundary
+        boundary_surfaces = [boundary]
+    else:
+        boundary = openmc.ZCylinder(
+            r=config.geometry.world_radius_cm, boundary_type="vacuum"
+        )
+        lower_boundary = openmc.ZPlane(
+            z0=-config.geometry.world_height_cm / 2, boundary_type="vacuum"
+        )
+        upper_boundary = openmc.ZPlane(
+            z0=config.geometry.world_height_cm / 2, boundary_type="vacuum"
+        )
+        world_region = -boundary & +lower_boundary & -upper_boundary
+        boundary_surfaces = [boundary, upper_boundary, lower_boundary]
     component_cells = {}
     scoped_component_indices = {
         index
@@ -217,7 +242,7 @@ def build_model(config: SimulationConfig):
             ) from exc
         tally_cells.append(("source", source_cell))
 
-    external_region = -boundary & ~previous_region
+    external_region = world_region & ~previous_region
     if component_scopes:
         external_region &= ~union(component_scopes)
     background_fill = (
@@ -225,13 +250,31 @@ def build_model(config: SimulationConfig):
         if config.geometry.background_material is not None
         else None
     )
-    cells.append(
-        openmc.Cell(
-            name="external background" if background_fill is not None else "external vacuum",
-            fill=background_fill,
-            region=external_region,
+    if air_sphere_region is None:
+        cells.append(
+            openmc.Cell(
+                name="external background"
+                if background_fill is not None
+                else "external vacuum",
+                fill=background_fill,
+                region=external_region,
+            )
         )
-    )
+    else:
+        cells.extend(
+            (
+                openmc.Cell(
+                    name="external background",
+                    fill=background_fill,
+                    region=external_region & air_sphere_region,
+                ),
+                openmc.Cell(
+                    name="external vacuum",
+                    fill=None,
+                    region=external_region & +air_sphere,
+                ),
+            )
+        )
     geometry = openmc.Geometry(openmc.Universe(cells=cells))
 
     settings = openmc.Settings()
@@ -390,6 +433,25 @@ def build_model(config: SimulationConfig):
             ]
             survey_spectrum.scores = ["flux"]
             tallies.append(survey_spectrum)
+    for probe in config.spectral_probes:
+        mesh = openmc.RegularMesh(name=f"spectral_probe_mesh_{probe.name}")
+        mesh.dimension = (1, 1, 1)
+        mesh.lower_left = tuple(
+            center - size / 2
+            for center, size in zip(probe.center_cm, probe.size_cm, strict=True)
+        )
+        mesh.upper_right = tuple(
+            center + size / 2
+            for center, size in zip(probe.center_cm, probe.size_cm, strict=True)
+        )
+        probe_spectrum = openmc.Tally(name=f"spectral_probe_{probe.name}")
+        probe_spectrum.filters = [
+            openmc.MeshFilter(mesh),
+            openmc.ParticleFilter("neutron"),
+            make_energy_filter(energy_edges_ev),
+        ]
+        probe_spectrum.scores = ["flux"]
+        tallies.append(probe_spectrum)
     production_tally = openmc.Tally(name="secondary_particle_production")
     production_energy_ev = sorted(
         set([0.0, 1.0e3, 1.0e5, 1.0e6, *energy_edges_ev])
@@ -405,7 +467,7 @@ def build_model(config: SimulationConfig):
 
     leakage_tally = openmc.Tally(name="world_neutron_leakage_spectrum")
     leakage_tally.filters = [
-        openmc.SurfaceFilter(boundary),
+        openmc.SurfaceFilter(boundary_surfaces),
         make_energy_filter(energy_edges_ev),
         openmc.ParticleFilter("neutron"),
     ]
@@ -414,6 +476,7 @@ def build_model(config: SimulationConfig):
 
     mesh_bins = config.visualization.mesh_bins
     radius = config.geometry.world_radius_cm
+    half_height = config.geometry.world_height_cm / 2 if config.geometry.world_height_cm else radius
     half_slice = config.visualization.slice_thickness_cm / 2
     for view, dimensions, lower_left, upper_right in (
         (
@@ -425,8 +488,8 @@ def build_model(config: SimulationConfig):
         (
             "xz",
             (mesh_bins, 1, mesh_bins),
-            (-radius, -half_slice, -radius),
-            (radius, half_slice, radius),
+            (-radius, -half_slice, -half_height),
+            (radius, half_slice, half_height),
         ),
     ):
         mesh = openmc.RegularMesh(name=f"mesh_{view}")

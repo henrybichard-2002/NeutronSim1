@@ -75,6 +75,15 @@ class GeometryConfig:
     components: tuple[ComponentConfig, ...]
     world_radius_cm: float
     background_material: str | None = None
+    world_height_cm: float | None = None
+    air_sphere_radius_cm: float | None = None
+
+
+@dataclass(frozen=True)
+class SpectralProbeConfig:
+    name: str
+    center_cm: tuple[float, float, float]
+    size_cm: tuple[float, float, float]
 
 
 @dataclass(frozen=True)
@@ -147,6 +156,7 @@ class SimulationConfig:
     physics: PhysicsConfig
     custom_source: CustomSourceConfig | None = None
     normalization: FluxNormalizationConfig | None = None
+    spectral_probes: tuple[SpectralProbeConfig, ...] = ()
 
 
 def _mapping(value: Any, path: str) -> dict[str, Any]:
@@ -200,7 +210,14 @@ def load_config(path: str | Path) -> SimulationConfig:
     _keys(
         root,
         {"source", "geometry", "materials", "settings", "tally"},
-        {"visualization", "detector", "physics", "custom_source", "normalization"},
+        {
+            "visualization",
+            "detector",
+            "physics",
+            "custom_source",
+            "normalization",
+            "spectral_probes",
+        },
         "configuration",
     )
 
@@ -216,7 +233,12 @@ def load_config(path: str | Path) -> SimulationConfig:
     _keys(
         geometry_data,
         {"cavity", "layers", "world_radius_cm"},
-        {"components", "background_material"},
+        {
+            "components",
+            "background_material",
+            "world_height_cm",
+            "air_sphere_radius_cm",
+        },
         "geometry",
     )
     cavity_data = _mapping(geometry_data["cavity"], "geometry.cavity")
@@ -281,14 +303,55 @@ def load_config(path: str | Path) -> SimulationConfig:
     world_radius = _number(
         geometry_data["world_radius_cm"], "geometry.world_radius_cm", minimum=0, exclusive=True
     )
+    world_height = (
+        _number(
+            geometry_data["world_height_cm"],
+            "geometry.world_height_cm",
+            minimum=0,
+            exclusive=True,
+        )
+        if "world_height_cm" in geometry_data
+        else None
+    )
+    air_sphere_radius = (
+        _number(
+            geometry_data["air_sphere_radius_cm"],
+            "geometry.air_sphere_radius_cm",
+            minimum=0,
+            exclusive=True,
+        )
+        if "air_sphere_radius_cm" in geometry_data
+        else None
+    )
     background_material = geometry_data.get("background_material")
     if background_material is not None and (
         not isinstance(background_material, str) or not background_material.strip()
     ):
         raise ConfigError("geometry.background_material must be a material name")
     outermost = layers[-1]
-    if world_radius <= math.hypot(outermost.radius_cm, outermost.height_cm / 2):
-        raise ConfigError("geometry.world_radius_cm must enclose the outermost cylinder")
+    if world_height is None:
+        if world_radius <= math.hypot(outermost.radius_cm, outermost.height_cm / 2):
+            raise ConfigError("geometry.world_radius_cm must enclose the outermost cylinder")
+    elif (
+        outermost.radius_cm >= world_radius
+        or outermost.height_cm >= world_height
+    ):
+        raise ConfigError(
+            "geometry world cylinder must enclose the outermost layer"
+        )
+    if air_sphere_radius is not None:
+        if background_material is None:
+            raise ConfigError(
+                "geometry.air_sphere_radius_cm requires geometry.background_material"
+            )
+        if (
+            world_height is None
+            or air_sphere_radius > world_radius
+            or air_sphere_radius > world_height / 2
+        ):
+            raise ConfigError(
+                "geometry world cylinder must enclose geometry.air_sphere_radius_cm"
+            )
     if source.radius_cm > cavity_radius or source.height_cm > cavity_height:
         raise ConfigError("the source cylinder must fit inside geometry.cavity")
 
@@ -395,9 +458,23 @@ def load_config(path: str | Path) -> SimulationConfig:
             half_extents = tuple(
                 length / 2 if coordinate == axis else radius for coordinate in ("x", "y", "z")
             )
-        if math.sqrt(
-            sum((abs(position) + extent) ** 2 for position, extent in zip(center, half_extents, strict=True))
-        ) >= world_radius:
+        if world_height is None:
+            outside_world = math.sqrt(
+                sum(
+                    (abs(position) + extent) ** 2
+                    for position, extent in zip(center, half_extents, strict=True)
+                )
+            ) >= world_radius
+        else:
+            outside_world = (
+                math.hypot(
+                    abs(center[0]) + half_extents[0],
+                    abs(center[1]) + half_extents[1],
+                )
+                >= world_radius
+                or abs(center[2]) + half_extents[2] >= world_height / 2
+            )
+        if outside_world:
             raise ConfigError(f"{component_path} must fit inside geometry.world_radius_cm")
         components.append(
             ComponentConfig(
@@ -429,8 +506,71 @@ def load_config(path: str | Path) -> SimulationConfig:
 
     geometry = GeometryConfig(
         cavity_radius, cavity_height, tuple(layers), tuple(components), world_radius,
-        background_material
+        background_material, world_height, air_sphere_radius
     )
+
+    raw_spectral_probes = root.get("spectral_probes", [])
+    if not isinstance(raw_spectral_probes, list):
+        raise ConfigError("spectral_probes must be a list")
+    spectral_probes: list[SpectralProbeConfig] = []
+    probe_names: set[str] = set()
+    for index, raw_probe in enumerate(raw_spectral_probes):
+        probe_path = f"spectral_probes[{index}]"
+        probe_data = _mapping(raw_probe, probe_path)
+        _keys(probe_data, {"name", "center_cm", "size_cm"}, set(), probe_path)
+        name = probe_data["name"]
+        if not isinstance(name, str) or not name.strip():
+            raise ConfigError(f"{probe_path}.name must be a non-empty string")
+        if name in names or name in probe_names:
+            raise ConfigError(f"spectral probe name {name!r} is duplicated")
+        center_data = probe_data["center_cm"]
+        size_data = probe_data["size_cm"]
+        if not isinstance(center_data, list) or len(center_data) != 3:
+            raise ConfigError(f"{probe_path}.center_cm must contain x, y and z")
+        if not isinstance(size_data, list) or len(size_data) != 3:
+            raise ConfigError(f"{probe_path}.size_cm must contain x, y and z sizes")
+        center = tuple(
+            _number(
+                value,
+                f"{probe_path}.center_cm[{axis}]",
+                minimum=-world_radius,
+            )
+            for axis, value in zip(("x", "y", "z"), center_data, strict=True)
+        )
+        size = tuple(
+            _number(
+                value,
+                f"{probe_path}.size_cm[{axis}]",
+                minimum=0,
+                exclusive=True,
+            )
+            for axis, value in zip(("x", "y", "z"), size_data, strict=True)
+        )
+        half = tuple(value / 2 for value in size)
+        if world_height is None:
+            outside_world = math.sqrt(
+                sum(
+                    (abs(position) + extent) ** 2
+                    for position, extent in zip(center, half, strict=True)
+                )
+            ) >= world_radius
+        else:
+            outside_world = (
+                math.hypot(abs(center[0]) + half[0], abs(center[1]) + half[1])
+                >= world_radius
+                or abs(center[2]) + half[2] >= world_height / 2
+            )
+        if outside_world:
+            raise ConfigError(f"{probe_path} must fit inside the world boundary")
+        if air_sphere_radius is not None and math.sqrt(
+            sum(
+                (abs(position) + extent) ** 2
+                for position, extent in zip(center, half, strict=True)
+            )
+        ) >= air_sphere_radius:
+            raise ConfigError(f"{probe_path} must fit inside the configured air sphere")
+        spectral_probes.append(SpectralProbeConfig(name, center, size))
+        probe_names.add(name)
 
     materials_data = _mapping(root["materials"], "materials")
     if not materials_data:
@@ -875,4 +1015,5 @@ def load_config(path: str | Path) -> SimulationConfig:
         physics=physics,
         custom_source=custom_source,
         normalization=normalization,
+        spectral_probes=tuple(spectral_probes),
     )

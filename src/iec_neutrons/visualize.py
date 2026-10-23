@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import csv
 import sys
 import warnings
 
@@ -38,7 +39,7 @@ class PlotStyle:
     spatial_clim: tuple[float, float] | None = None
     energy_clim: tuple[float, float] | None = None
     uncertainty_clim: tuple[float, float] | None = None
-    spectrum_xlim: tuple[0.1, 20.0] | None = None
+    spectrum_xlim: tuple[float, float] | None = None
     spectrum_ylim: tuple[float, float] | None = None
     marginal_ylim: tuple[float, float] | None = None
 
@@ -95,6 +96,9 @@ def plot_results(
         f"survey_spectrum_{component.name}"
         for component in config.geometry.components
         if component.score_spectrum
+    )
+    expected_names.update(
+        f"spectral_probe_{probe.name}" for probe in config.spectral_probes
     )
     if config.normalization is not None:
         expected_names.add("flux_surface_normalization")
@@ -158,6 +162,7 @@ def plot_results(
         survey_spectra = {}
         he3_detector_spectra = {}
         he3_axial_capture_responses = {}
+        source_birth_spectrum = None
         if component_source_tally:
             spectra["Reactor vacuum cavity (fusion source region)"] = (
                 _spectrum_values(
@@ -416,6 +421,75 @@ def plot_results(
                 edges_mev,
                 values / volume_cm3 / np.diff(edges_mev) * flux_scale,
             )
+        for probe in config.spectral_probes:
+            probe_tally = statepoint.get_tally(
+                name=f"spectral_probe_{probe.name}"
+            )
+            energy_filter = next(
+                (
+                    item
+                    for item in probe_tally.filters
+                    if isinstance(item, openmc.EnergyFilter)
+                ),
+                None,
+            )
+            if energy_filter is None:
+                raise ValueError(
+                    f"Spectral probe {probe.name!r} has no energy filter"
+                )
+            bins_ev = np.asarray(energy_filter.bins, dtype=float)
+            edges_mev = np.concatenate((bins_ev[:1, 0], bins_ev[:, 1])) / 1.0e6
+            values = np.asarray(
+                probe_tally.get_values(scores=["flux"], value="mean"),
+                dtype=float,
+            ).reshape(-1)
+            volume_cm3 = float(np.prod(probe.size_cm))
+            if values.size != len(edges_mev) - 1:
+                raise ValueError(
+                    f"Spectral probe {probe.name!r} has an unexpected "
+                    "number of energy bins"
+                )
+            survey_spectra[probe.name] = (
+                edges_mev,
+                values / volume_cm3 / np.diff(edges_mev) * flux_scale,
+            )
+    if config.custom_source is not None:
+        source_spectrum_path = statepoint_file.parent / "source_birth_spectrum.csv"
+        if not source_spectrum_path.is_file():
+            raise ValueError(
+                "Custom-source birth-energy data is missing beside the statepoint; "
+                "rerun with the current compiled-source runner."
+            )
+        with source_spectrum_path.open(newline="", encoding="utf-8") as source_file:
+            source_rows = list(csv.DictReader(source_file))
+        if not source_rows:
+            raise ValueError(
+                f"Custom-source birth-energy file is empty: {source_spectrum_path}"
+            )
+        source_edges = np.asarray(
+            [float(source_rows[0]["energy_lower_mev"])]
+            + [float(row["energy_upper_mev"]) for row in source_rows],
+            dtype=float,
+        )
+        source_probability = np.asarray(
+            [float(row["probability_per_source_neutron"]) for row in source_rows],
+            dtype=float,
+        )
+        if (
+            source_probability.size != len(config.tally.energy_bins_mev) - 1
+            or not np.allclose(source_edges, config.tally.energy_bins_mev)
+            or np.any(~np.isfinite(source_probability))
+            or np.any(source_probability < 0)
+            or not np.isclose(source_probability.sum(), 1.0)
+        ):
+            raise ValueError(
+                "Custom-source birth-energy data does not match the configured "
+                "energy bins or is not normalized."
+            )
+        source_birth_spectrum = (
+            source_edges,
+            source_probability / np.diff(source_edges),
+        )
         detector_available = "detector_energy_spectrum" in available_names
         detector_mean = None
         detector_std_dev = None
@@ -578,6 +652,7 @@ def plot_results(
                 plt,
                 np,
                 normalized,
+                source_birth_spectrum,
             )
         )
 
@@ -709,6 +784,12 @@ def _validate_mesh_tallies(
     tallies, config: SimulationConfig, np, openmc
 ) -> tuple[dict[str, tuple[float, float, float, float]], dict[str, str]]:
     radius = config.geometry.world_radius_cm
+    half_height = (
+        config.geometry.world_height_cm / 2
+        if config.geometry.world_height_cm is not None
+        else radius
+    )
+    axis_limits = (radius, radius, half_height)
     half_slice = config.visualization.slice_thickness_cm / 2
     map_edges_ev = np.asarray(config.visualization.energy_bins_mev) * 1.0e6
     expected_energy_bins = np.column_stack((map_edges_ev[:-1], map_edges_ev[1:]))
@@ -738,7 +819,8 @@ def _validate_mesh_tallies(
             if any(
                 lower[index] >= 0
                 or upper[index] <= 0
-                or max(abs(lower[index]), abs(upper[index])) > radius + 1e-8
+                or max(abs(lower[index]), abs(upper[index]))
+                > axis_limits[index] + 1e-8
                 or not np.isclose(lower[index], -upper[index])
                 for index in plane_indices
             ):
@@ -822,14 +904,25 @@ def _validate_detector_tally(tally, config: SimulationConfig, np, openmc) -> Non
 
 
 def _geometry_outlines(config: SimulationConfig, view: str, Circle, Rectangle):
-    world_boundary = Circle(
-        (0, 0),
-        config.geometry.world_radius_cm,
-        fill=False,
-        edgecolor="white",
-        linewidth=1.0,
-        linestyle=":",
-    )
+    if view == "xz" and config.geometry.world_height_cm is not None:
+        world_boundary = Rectangle(
+            (-config.geometry.world_radius_cm, -config.geometry.world_height_cm / 2),
+            2 * config.geometry.world_radius_cm,
+            config.geometry.world_height_cm,
+            fill=False,
+            edgecolor="white",
+            linewidth=1.0,
+            linestyle=":",
+        )
+    else:
+        world_boundary = Circle(
+            (0, 0),
+            config.geometry.world_radius_cm,
+            fill=False,
+            edgecolor="white",
+            linewidth=1.0,
+            linestyle=":",
+        )
     if view == "xy":
         outlines = [
             Circle(
@@ -1039,12 +1132,24 @@ def _detector_overlay(axis, config: SimulationConfig, view: str, Rectangle) -> N
     )
 
 
-def _set_spatial_axes(axis, view: str, style: PlotStyle, world_radius: float) -> None:
+def _set_spatial_axes(
+    axis,
+    view: str,
+    style: PlotStyle,
+    world_radius: float,
+    world_half_height: float | None = None,
+) -> None:
     axis.set_xscale(style.spatial_xscale)
     axis.set_yscale(style.spatial_yscale)
     axis.set_xlim(*(style.xlim or (-world_radius, world_radius)))
     vertical_limit = style.ylim if view == "xy" else style.zlim
-    axis.set_ylim(*(vertical_limit or (-world_radius, world_radius)))
+    axis.set_ylim(
+        *(vertical_limit or (
+            (-world_half_height, world_half_height)
+            if view == "xz" and world_half_height is not None
+            else (-world_radius, world_radius)
+        ))
+    )
 
 
 def _plot_spatial_map(
@@ -1094,7 +1199,15 @@ def _plot_spatial_map(
     axis.set_xlabel("x (cm)")
     axis.set_ylabel("y (cm)" if view == "xy" else "z (cm)")
     axis.set_title(title)
-    _set_spatial_axes(axis, view, style, config.geometry.world_radius_cm)
+    _set_spatial_axes(
+        axis,
+        view,
+        style,
+        config.geometry.world_radius_cm,
+        config.geometry.world_height_cm / 2
+        if config.geometry.world_height_cm is not None
+        else None,
+    )
     figure.colorbar(image, ax=axis, label=colorbar_label)
     figure.savefig(str(path), dpi=180)
     plt.close(figure)
@@ -1162,7 +1275,15 @@ def _plot_energy_map(
         for outline in _geometry_outlines(config, view, Circle, Rectangle):
             axis.add_patch(outline)
         _detector_overlay(axis, config, view, Rectangle)
-        _set_spatial_axes(axis, view, style, config.geometry.world_radius_cm)
+        _set_spatial_axes(
+            axis,
+            view,
+            style,
+            config.geometry.world_radius_cm,
+            config.geometry.world_height_cm / 2
+            if config.geometry.world_height_cm is not None
+            else None,
+        )
         axis.set_title(f"{edges[index]:g}-{edges[index + 1]:g} MeV")
         axis.set_xlabel("x (cm)")
         axis.set_ylabel("y (cm)" if view == "xy" else "z (cm)")
@@ -1222,6 +1343,11 @@ def _plot_marginals(
         first_description = f"at y = {first_coordinate:g} cm"
         second_description = f"at x = {second_coordinate:g} cm"
     else:
+        vertical_world_extent = (
+            config.geometry.world_height_cm / 2
+            if config.geometry.world_height_cm is not None
+            else world_radius
+        )
         first_index = _nearest_index(vertical_edges, config.visualization.marginal_z_cm)
         second_index = _nearest_index(horizontal_edges, config.visualization.marginal_x_cm)
         first_coordinate = (vertical_edges[first_index] + vertical_edges[first_index + 1]) / 2
@@ -1286,9 +1412,18 @@ def _plot_marginals(
     return path
 
 
-def _plot_survey_spectra(spectra, path, plt, np, normalized: bool) -> Path:
+def _plot_survey_spectra(
+    spectra,
+    path,
+    plt,
+    np,
+    normalized: bool,
+    source_birth_spectrum=None,
+) -> Path:
     figure, axis = plt.subplots(figsize=(10, 6), constrained_layout=True)
     inset = axis.inset_axes([0.08, 0.54, 0.4, 0.4])
+    source_axis = axis.twinx() if source_birth_spectrum is not None else None
+    source_inset = inset.twinx() if source_birth_spectrum is not None else None
     main_values = []
     inset_values = []
     colors = plt.get_cmap("tab10")
@@ -1315,6 +1450,30 @@ def _plot_survey_spectra(spectra, path, plt, np, normalized: bool) -> Path:
             color=color,
         )
         inset_values.append(low_energy_slice)
+    if source_birth_spectrum is not None:
+        source_edges, source_values = source_birth_spectrum
+        main_start = int(np.searchsorted(source_edges, 1.0, side="left"))
+        main_end = int(np.searchsorted(source_edges, 16.0, side="left"))
+        source_inset_end = int(np.searchsorted(source_edges, 1.0, side="right")) - 1
+        source_axis.stairs(
+            source_values[main_start:main_end],
+            source_edges[main_start : main_end + 1],
+            label="Custom source birth spectrum",
+            linewidth=1.8,
+            color="black",
+            linestyle="--",
+        )
+        source_inset.stairs(
+            source_values[1 : source_inset_end],
+            source_edges[1 : source_inset_end + 1],
+            linewidth=1.4,
+            color="black",
+            linestyle="--",
+        )
+        source_axis.set_yscale("log")
+        source_axis.set_ylabel("Birth probability per neutron per MeV")
+        source_inset.set_yscale("log")
+        source_inset.tick_params(axis="y", labelsize=6)
     axis.set_xscale("linear")
     _set_spectrum_yscale(axis, main_values, "log", np)
     axis.set_xlabel("Neutron energy (MeV)")
@@ -1324,9 +1483,14 @@ def _plot_survey_spectra(spectra, path, plt, np, normalized: bool) -> Path:
         else "Track length density (cm$^{-2}$ per source neutron per MeV)"
     )
     axis.set_xlim(1.0, 16.0)
-    axis.set_title("Neutron spectra at the four fixed survey regions")
+    axis.set_title("Neutron spectra by region")
     axis.grid(True, which="both", alpha=0.25)
-    axis.legend()
+    handles, labels = axis.get_legend_handles_labels()
+    if source_axis is not None:
+        source_handles, source_labels = source_axis.get_legend_handles_labels()
+        handles.extend(source_handles)
+        labels.extend(source_labels)
+    axis.legend(handles, labels)
     inset.set_xscale("log")
     inset.set_xlim(edges[1], 1.0)
     _set_spectrum_yscale(inset, inset_values, "log", np)
@@ -1752,6 +1916,11 @@ def _plot_geometry(
     config, view, path, plt, Circle, Patch, Wedge, Rectangle, style: PlotStyle
 ) -> Path:
     world_radius = config.geometry.world_radius_cm
+    vertical_world_extent = (
+        config.geometry.world_height_cm / 2
+        if config.geometry.world_height_cm is not None
+        else world_radius
+    )
     colors = _material_colors(config, style)
     figure, axis = plt.subplots(figsize=(11, 7), constrained_layout=True)
     if view == "xy":
@@ -1813,7 +1982,18 @@ def _plot_geometry(
         )
         _add_component_patches(axis, config, view, Circle, Rectangle, colors)
         axis.add_patch(
-            Circle(
+            Rectangle(
+                (-world_radius, -vertical_world_extent),
+                2 * world_radius,
+                2 * vertical_world_extent,
+                fill=False,
+                edgecolor="black",
+                linewidth=1.0,
+                linestyle=":",
+                label="Vacuum boundary",
+            )
+            if config.geometry.world_height_cm is not None
+            else Circle(
                 (0, 0),
                 world_radius,
                 fill=False,
@@ -1824,7 +2004,7 @@ def _plot_geometry(
             )
         )
         _detector_overlay(axis, config, view, Rectangle)
-        _set_spatial_axes(axis, view, style, world_radius)
+        _set_spatial_axes(axis, view, style, world_radius, vertical_world_extent)
         axis.set_xlabel("x (cm)")
         axis.set_ylabel("z (cm)")
         axis.set_aspect("equal")

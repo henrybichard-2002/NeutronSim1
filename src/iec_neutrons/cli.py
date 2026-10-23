@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from .config import ConfigError, load_config
+from .compiled_source import run_custom_source_model
 from .diagnostics import export_he3_spectra_csv, print_run_summary
 from .model import export_model, run_model
 from .visualize import plot_results
@@ -48,7 +49,16 @@ def main() -> int:
             destination = export_model(config, output_dir)
             print(f"OpenMC model inputs written to {destination}")
         elif arguments.command == "run":
-            statepoint = run_model(config, output_dir)
+            if config.custom_source is not None:
+                statepoint, source_spectrum = run_custom_source_model(
+                    config, output_dir
+                )
+                print(
+                    "Custom-source birth-energy spectrum written to "
+                    f"{source_spectrum}"
+                )
+            else:
+                statepoint = run_model(config, output_dir)
             print(f"OpenMC run complete; statepoint written to {statepoint}")
             print_run_summary(statepoint, config)
             csv_path = export_he3_spectra_csv(

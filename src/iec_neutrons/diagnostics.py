@@ -360,7 +360,27 @@ def print_run_summary(
                 )
 
         leakage_tally = statepoint.get_tally(name="world_neutron_leakage_spectrum")
-        leakage_spectrum = _means(leakage_tally, "current")
+        leakage_values = _means(leakage_tally, "current")
+        if config.geometry.world_height_cm is None:
+            leakage_spectrum = leakage_values
+        else:
+            surface_count = 3
+            energy_count = len(edges_mev) - 1
+            if len(leakage_values) != surface_count * energy_count:
+                raise ValueError(
+                    "Cylindrical world leakage tally must contain side, top, "
+                    "and bottom surface bins for every energy bin"
+                )
+            by_surface = [
+                leakage_values[index * energy_count : (index + 1) * energy_count]
+                for index in range(surface_count)
+            ]
+            leakage_spectrum = [
+                side + top - bottom
+                for side, top, bottom in zip(
+                    *by_surface, strict=True
+                )
+            ]
         leakage_per_source = sum(leakage_spectrum)
         expected_leakage = leakage_per_source * source_histories
         net_neutrons = expected_leakage - source_histories

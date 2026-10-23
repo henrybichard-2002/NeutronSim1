@@ -7,6 +7,7 @@ import argparse
 import importlib.util
 from pathlib import Path
 import sys
+import uuid
 
 try:
     import openmc
@@ -16,26 +17,15 @@ except ImportError as exc:
         "with the Python from the neutrons-openmc environment."
     ) from exc
 
-from iec_neutrons.compiled_source import compile_custom_source
+from iec_neutrons.compiled_source import (
+    collect_source_birth_spectrum,
+    compile_custom_source,
+    custom_source_parameters,
+)
 from iec_neutrons.config import load_config
 from iec_neutrons.diagnostics import export_he3_spectra_csv, print_run_summary
 from iec_neutrons.model import build_model
 from iec_neutrons.visualize import plot_results
-
-
-DEFAULT_PARAMETERS = (
-    "r_anode_cm=3.85;"
-    "r_cathode_cm=0.73;"
-    "half_height_cm=17.5;"
-    "voltage_kev=90;"
-    "neutral_temperature_k=300;"
-    "tritium_fraction=0.5;"
-    "zone_beam_target=1;"
-    "zone_beam_wall=0;"
-    "zone_beam_beam=0;"
-    "source_strength=1;"
-    "neutral_profile=0:1,1:1"
-)
 
 
 def main() -> int:
@@ -92,37 +82,29 @@ def main() -> int:
 
     config = load_config(args.config)
     model = build_model(config)
-    parameters = args.parameters or DEFAULT_PARAMETERS
-    if args.parameters is None and config.custom_source is not None:
-        custom = config.custom_source
-        profile = ",".join(
-            f"{radius_fraction:g}:{density:g}"
-            for radius_fraction, density in custom.neutral_profile
-        )
-        reactor_centers = "|".join(
-            f"{x_cm:g},{y_cm:g}" for x_cm, y_cm in custom.reactor_centers_cm
-        )
-        parameters = ";".join(
-            (
-                f"r_anode_cm={config.geometry.cavity_radius_cm:g}",
-                f"r_cathode_cm={custom.cathode_radius_cm:g}",
-                f"half_height_cm={config.source.height_cm / 2:g}",
-                f"voltage_kev={custom.voltage_kev:g}",
-                f"neutral_temperature_k={custom.neutral_temperature_k:g}",
-                f"tritium_fraction={custom.tritium_fraction:g}",
-                f"zone_beam_target={custom.zone_beam_target:g}",
-                f"zone_beam_wall={custom.zone_beam_wall:g}",
-                f"zone_beam_beam={custom.zone_beam_beam:g}",
-                f"source_strength={custom.source_strength:g}",
-                f"neutral_profile={profile}",
-                f"reactor_centers_cm={reactor_centers}",
-            )
-        )
+    source_spectrum_base = (
+        output_dir / f"source_birth_spectrum.{uuid.uuid4().hex}"
+        if config.custom_source is not None
+        else None
+    )
+    parameters = custom_source_parameters(
+        config,
+        source_spectrum_base,
+        override_parameters=args.parameters,
+    )
     model.settings.source = openmc.CompiledSource(
         library=library,
         parameters=parameters,
     )
     statepoint = model.run(cwd=str(output_dir))
+    if source_spectrum_base is not None:
+        source_spectrum = collect_source_birth_spectrum(
+            source_spectrum_base, output_dir / "source_birth_spectrum.csv"
+        )
+        print(
+            "Custom-source birth-energy spectrum written to "
+            f"{source_spectrum}"
+        )
     print(f"OpenMC run complete; statepoint written to {statepoint}")
     print_run_summary(statepoint, config)
     csv_path = export_he3_spectra_csv(

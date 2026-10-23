@@ -237,6 +237,74 @@ def test_profile_surface_flux_reference_mesh_is_just_outside_cowling() -> None:
     assert end_plane_counts == {-17.5: 1, 17.5: 1}
 
 
+def test_profile_air_sphere_cylindrical_world_and_spectral_regions() -> None:
+    openmc = pytest.importorskip("openmc")
+    config = load_config(CONFIG_DIR / "gen_reactor_config_profile.yaml")
+    model = build_model(config)
+    tallies = {item.name: item for item in model.tallies}
+    cells = {cell.name: cell for cell in model.geometry.get_all_cells().values()}
+    surfaces = model.geometry.get_all_surfaces().values()
+
+    assert any(
+        isinstance(surface, openmc.Sphere) and surface.r == pytest.approx(100.0)
+        for surface in surfaces
+    )
+    assert any(
+        isinstance(surface, openmc.ZCylinder)
+        and surface.r == pytest.approx(100.0)
+        and surface.boundary_type == "vacuum"
+        for surface in surfaces
+    )
+    assert any(
+        isinstance(surface, openmc.ZPlane)
+        and surface.z0 == pytest.approx(100.0)
+        and surface.boundary_type == "vacuum"
+        for surface in surfaces
+    )
+    assert model.geometry.find((5.3, 0.0, 0.0))[-1].name == (
+        "spectrum_after_anode_aluminium"
+    )
+    assert model.geometry.find((6.75, 0.0, 0.0))[-1].name == (
+        "spectrum_after_water_jacket"
+    )
+    assert model.geometry.find((9.05, 0.0, 0.0))[-1].name == (
+        "spectrum_after_cowling_2cm_air"
+    )
+    assert model.geometry.find((27.05, 0.0, 0.0))[-1].name == (
+        "spectrum_cathode_parallel_20cm_from_reactor"
+    )
+    assert model.geometry.find((0.0, 0.0, -75.0))[-1].name == (
+        "spectrum_axial_z_minus_75cm"
+    )
+    assert model.geometry.find((0.0, 0.0, 75.0))[-1].name == (
+        "spectrum_axial_z_plus_75cm"
+    )
+    assert model.geometry.find((99.0, 0.0, 20.0))[-1].name == "external vacuum"
+    assert "external background" in cells
+
+    energy_tally = tallies["energy_map_xz"]
+    mesh = next(
+        item.mesh
+        for item in energy_tally.filters
+        if isinstance(item, openmc.MeshFilter)
+    )
+    assert tuple(mesh.lower_left) == pytest.approx(
+        (-100.0, -config.visualization.slice_thickness_cm / 2, -100.0)
+    )
+    assert tuple(mesh.upper_right) == pytest.approx(
+        (100.0, config.visualization.slice_thickness_cm / 2, 100.0)
+    )
+    for name in (
+        "spectrum_after_anode_aluminium",
+        "spectrum_after_water_jacket",
+        "spectrum_after_cowling_2cm_air",
+        "spectrum_cathode_parallel_20cm_from_reactor",
+        "spectrum_axial_z_minus_75cm",
+        "spectrum_axial_z_plus_75cm",
+    ):
+        assert f"survey_spectrum_{name}" in tallies
+
+
 def test_gen_dd_reactor_geometry_and_detector_shields() -> None:
     openmc = pytest.importorskip("openmc")
     config = load_config(CONFIG_DIR / "genDD_reactor.yaml")
