@@ -83,7 +83,14 @@ def plot_results(
         for view in ("xy", "xz")
     }
     expected_names = set(map_tally_names.values())
-    expected_names.add("flux_spectrum_source_cavity")
+    component_source_tally = (
+        config.custom_source is not None and config.normalization is not None
+    )
+    expected_names.add(
+        "flux_spectrum_source"
+        if component_source_tally
+        else "flux_spectrum_source_cavity"
+    )
     expected_names.update(f"flux_spectrum_{layer.name}" for layer in config.geometry.layers)
     expected_names.update(
         f"survey_spectrum_{component.name}"
@@ -152,7 +159,14 @@ def plot_results(
         survey_spectra = {}
         he3_detector_spectra = {}
         he3_axial_capture_responses = {}
-        if "flux_spectrum_source" in available_names:
+        if component_source_tally:
+            spectra["Reactor vacuum cavity (fusion source region)"] = (
+                _spectrum_values(
+                    statepoint.get_tally(name="flux_spectrum_source"), np
+                )
+                * flux_scale
+            )
+        elif "flux_spectrum_source" in available_names:
             spectra["Source volume"] = _spectrum_values(
                 statepoint.get_tally(name="flux_spectrum_source"), np
             ) * flux_scale
@@ -1646,7 +1660,7 @@ def _plot_he3_detector_spectrum(
     path,
     plt,
     style: PlotStyle,
-    normalized: bool,
+    normalized: bool = False,
 ) -> Path:
     import numpy as np
 
@@ -1804,7 +1818,7 @@ def _plot_he3_capture_heatmap(
     plt,
     LogNorm,
     style: PlotStyle,
-    normalized: bool,
+    normalized: bool = False,
 ) -> Path:
     import numpy as np
 

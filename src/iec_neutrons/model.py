@@ -74,6 +74,9 @@ def build_model(config: SimulationConfig):
     component_regions = [
         component_region(component) for component in config.geometry.components
     ]
+    component_source_tally = (
+        config.custom_source is not None and config.normalization is not None
+    )
     global_component_regions = [
         region
         for component, region in zip(
@@ -98,26 +101,29 @@ def build_model(config: SimulationConfig):
         if config.source.radius_cm == config.geometry.cavity_radius_cm
         else None
     )
-    source_region = cylinder_region(
-        config.source.radius_cm, config.source.height_cm, source_cylinder
-    )
-    if global_component_union is not None:
-        source_region &= ~global_component_union
-    source_cell = openmc.Cell(name="source volume", region=source_region)
-    cavity_cell_region = cavity_region & ~source_region
-    if global_component_union is not None:
-        cavity_cell_region &= ~global_component_union
-    cavity_cell = openmc.Cell(
-        name="source cavity outside source volume",
-        region=cavity_cell_region,
-    )
-    cells = [source_cell, cavity_cell]
+    cells = []
+    tally_cells: list[tuple[str, openmc.Cell]] = []
+    if not component_source_tally:
+        source_region = cylinder_region(
+            config.source.radius_cm, config.source.height_cm, source_cylinder
+        )
+        if global_component_union is not None:
+            source_region &= ~global_component_union
+        source_cell = openmc.Cell(name="source volume", region=source_region)
+        cavity_cell_region = cavity_region & ~source_region
+        if global_component_union is not None:
+            cavity_cell_region &= ~global_component_union
+        cavity_cell = openmc.Cell(
+            name="source cavity outside source volume",
+            region=cavity_cell_region,
+        )
+        cells.extend((source_cell, cavity_cell))
+        tally_cells.extend(
+            (("source", source_cell), ("source_cavity", cavity_cell))
+        )
     previous_region = cavity_region
-    tally_cells: list[tuple[str, openmc.Cell]] = [
-        ("source", source_cell),
-        ("source_cavity", cavity_cell),
-    ]
     layer_regions = {}
+    material_cells = []
     for layer in config.geometry.layers:
         layer_region = cylinder_region(layer.radius_cm, layer.height_cm)
         layer_cell_region = layer_region & ~previous_region
@@ -137,11 +143,11 @@ def build_model(config: SimulationConfig):
             region=layer_cell_region,
         )
         cells.append(cell)
+        material_cells.append((layer.name, cell))
         tally_cells.append((layer.name, cell))
         previous_region = layer_region
 
     boundary = openmc.Sphere(r=config.geometry.world_radius_cm, boundary_type="vacuum")
-    material_cells = list(tally_cells[2:])
     component_cells = {}
     scoped_component_indices = {
         index
@@ -200,6 +206,16 @@ def build_model(config: SimulationConfig):
             material_cells.append((component.name, cell))
         tally_cells.append((component.name, cell))
         component_cells[component.name] = cell
+
+    if component_source_tally:
+        try:
+            source_cell = component_cells["main_reactor_vacuum_cavity"]
+        except KeyError as exc:
+            raise ValueError(
+                "Flux-normalized custom-source models require a "
+                "'main_reactor_vacuum_cavity' geometry component"
+            ) from exc
+        tally_cells.append(("source", source_cell))
 
     external_region = -boundary & ~previous_region
     if component_scopes:

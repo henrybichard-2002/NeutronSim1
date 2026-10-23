@@ -157,6 +157,9 @@ cavity is tallied separately. XY/XZ flux maps divide track-length tallies by
 the exact mesh-cell volume to report scalar flux in cm-2 per source neutron.
 Region spectra are integrated track-length tallies in cm per source neutron,
 so raw values should not be compared across regions of different volumes.
+For the flux-calibrated profile, the source spectrum uses the actual
+`main_reactor_vacuum_cavity` cell, which contains the compiled-source emission
+region; a separate virtual source-cavity cell is not created.
 
 OpenMC tallies are normalized per source particle; multiply them by the
 physical neutron emission rate when a source-rate-normalized result is needed.

@@ -326,7 +326,14 @@ def print_run_summary(
             file=file,
         )
 
-        region_names = ["source", "source_cavity"]
+        component_source_tally = (
+            config.custom_source is not None and config.normalization is not None
+        )
+        region_names = (
+            ["source"]
+            if component_source_tally
+            else ["source", "source_cavity"]
+        )
         region_names.extend(layer.name for layer in config.geometry.layers)
         region_names.extend(
             component.name for component in config.geometry.components
@@ -340,8 +347,13 @@ def print_run_summary(
                 print(f"    {region}: no scored neutron track length", file=file)
             else:
                 mean_energy, maximum = summary
+                display_name = (
+                    "source (reactor vacuum cavity)"
+                    if region == "source" and component_source_tally
+                    else region
+                )
                 print(
-                    f"    {region}: mean {mean_energy:.3f} MeV; "
+                    f"    {display_name}: mean {mean_energy:.3f} MeV; "
                     f"maximum-bin upper edge {maximum:.2f} MeV",
                     file=file,
                 )

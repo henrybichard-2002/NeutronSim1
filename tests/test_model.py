@@ -199,6 +199,29 @@ def test_profile_surface_flux_reference_mesh_is_just_outside_cowling() -> None:
     mesh_filter = next(
         item for item in tally.filters if isinstance(item, openmc.MeshFilter)
     )
+    source_tally = next(
+        item for item in model.tallies if item.name == "flux_spectrum_source"
+    )
+    tally_names = {item.name for item in model.tallies}
+    source_filter = next(
+        item
+        for item in source_tally.filters
+        if isinstance(item, openmc.CellFilter)
+    )
+    source_component = next(
+        cell
+        for cell in model.geometry.get_all_cells().values()
+        if cell.name == "main_reactor_vacuum_cavity"
+    )
+    cells = model.geometry.get_all_cells().values()
+    end_plane_counts = {
+        z: sum(
+            isinstance(surface, openmc.ZPlane)
+            and surface.z0 == pytest.approx(z)
+            for surface in model.geometry.get_all_surfaces().values()
+        )
+        for z in (-17.5, 17.5)
+    }
 
     assert tally.scores == ["flux"]
     assert tuple(mesh_filter.mesh.dimension) == (1, 1, 1)
@@ -208,6 +231,10 @@ def test_profile_surface_flux_reference_mesh_is_just_outside_cowling() -> None:
     assert tuple(mesh_filter.mesh.upper_right) == pytest.approx(
         (7.1, 0.05, 0.05)
     )
+    assert source_filter.bins == [source_component.id]
+    assert "flux_spectrum_source_cavity" not in tally_names
+    assert not any(cell.name in {"source volume", "source cavity outside source volume"} for cell in cells)
+    assert end_plane_counts == {-17.5: 1, 17.5: 1}
 
 
 def test_gen_dd_reactor_geometry_and_detector_shields() -> None:
