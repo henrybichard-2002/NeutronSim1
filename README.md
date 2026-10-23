@@ -331,31 +331,19 @@ Alternate indices must include an equivalent entry (and photon interaction
 tables before enabling photon transport). Existing reactor-path
 configurations leave photon transport disabled.
 
-`visualization.voxel_bins` sets the geometry voxel resolution in each direction
-(64 × 64 × 64 by default). Plotting produces `geometry_voxels.png`, a
-material-coloured 3D voxel view of the source region, radial layers, and
-external components; vacuum remains transparent. Its bounds focus on the
-configured physical geometry rather than the full vacuum world sphere.
-Voxelization is a visualization approximation: features thinner than a voxel
-may be omitted or assigned to an adjacent material. Rendering cost grows
-cubically with this setting, so increase it gradually. XY and XZ transport
-maps remain separate central-plane views.
-
-The `genDD_reactor` voxel image removes the +x/−y quarter of the geometry and
-views the model from that side, exposing the cylindrical layers, reactor end
-caps, and detector assemblies. Four vertical detectors are centered 25 cm from
-the reactor axis at +x, +y, −x, and −y, in that order. Each has an outside
+The `genDD_reactor` configuration has four vertical detectors centered 25 cm
+from the reactor axis at +x, +y, −x, and −y, in that order. Each has an outside
 diameter of 25.4 mm and an active height of 310 mm, with a 1 mm aluminium wall
 and end caps enclosing a 23.4 mm diameter × 308 mm He-3 gas volume. Each is
 surrounded by 3 mm of lead and by an HDPE cylinder whose thickness is 2, 3, 4,
 or 5 cm respectively; the lead and HDPE cylinders have the same 31.6 cm
 height as the detector assembly, so the shielding thicknesses are radial. The
 He-3 density is the ideal-gas value for 4 bar absolute at 50 °C. The configured
-1300 V bias and nominal
-50 cps/(n/cm²/s) calibration are detector metadata only; OpenMC reports the
-energy-binned He-3 (n,p) response tally and does not model charge collection or
-apply that calibration. The two 38 mm radius × 14 mm thick aluminium end caps
-are centered immediately above and below the 70 cm cavity.
+1300 V bias and nominal 50 cps/(n/cm²/s) calibration are detector metadata
+only; OpenMC reports the energy-binned He-3 (n,p) response tally and does not
+model charge collection or apply that calibration. The two 38 mm radius × 14
+mm thick aluminium end caps are centered immediately above and below the 70 cm
+cavity.
 
 ## Compiled IEC fusion source
 

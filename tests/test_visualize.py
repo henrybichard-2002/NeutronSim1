@@ -5,10 +5,8 @@ import pytest
 from iec_neutrons.config import load_config
 from iec_neutrons.visualize import (
     PLOT_STYLE,
-    _geometry_voxel_data,
     _material_colors,
     _plot_geometry,
-    _plot_geometry_voxels,
     _plot_he3_capture_heatmap,
     _plot_he3_detector_spectrum,
     _plot_spatial_map,
@@ -256,38 +254,6 @@ def test_geometry_plot_uses_material_legend_without_component_labels(
     figure.clear()
 
 
-def test_geometry_voxel_plot_shows_material_voxels(tmp_path: Path) -> None:
-    matplotlib = pytest.importorskip("matplotlib")
-    matplotlib.use("Agg", force=True)
-    import matplotlib.pyplot as plt
-    import numpy as np
-    from matplotlib.patches import Patch
-    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-
-    config = load_config(Path(__file__).parents[1] / "config" / "he3_detector.yaml")
-    labels, materials, bounds = _geometry_voxel_data(config, np)
-    assert "D-T source volume" in materials
-    assert {"air", "aluminium", "water", "polyethylene", "helium3_gas"} <= set(materials)
-    assert np.any(labels >= 0)
-    category_ids = {name: index for index, name in enumerate(materials)}
-    assert np.any(labels == category_ids["helium3_gas"])
-    assert np.any(labels == category_ids["polyethylene"])
-    path = _plot_geometry_voxels(
-        labels,
-        materials,
-        bounds,
-        config.visualization.voxel_bins,
-        tmp_path / "geometry_voxels.png",
-        plt,
-        np,
-        Patch,
-        PLOT_STYLE,
-        Poly3DCollection,
-    )
-
-    assert path.is_file()
-
-
 def test_he3_spectrum_log_plot_retains_low_energy_inset(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -390,23 +356,3 @@ def test_he3_capture_heatmap_uses_log_energy_and_response_scales(
     assert "capture response density" in colorbar_axis.get_ylabel().lower()
     figure.clear()
 
-
-def test_gen_reactor_voxel_geometry_has_cutaway_and_components() -> None:
-    pytest.importorskip("matplotlib")
-    import numpy as np
-
-    config = load_config(Path(__file__).parents[1] / "config" / "gen_reactor.yaml")
-    labels, materials, bounds = _geometry_voxel_data(config, np)
-    bins = config.visualization.voxel_bins
-    x = np.linspace(bounds[0][0], bounds[0][1], bins, endpoint=False)
-    x += (bounds[0][1] - bounds[0][0]) / (2 * bins)
-    y = np.linspace(bounds[1][0], bounds[1][1], bins, endpoint=False)
-    y += (bounds[1][1] - bounds[1][0]) / (2 * bins)
-    cutaway = (x[:, None] > 0) & (y[None, :] < 0)
-
-    assert np.all(labels[cutaway, :] == -1)
-    assert {"air", "aluminium", "water", "hdpe", "lead", "helium3_gas"} <= set(materials)
-    material_ids = {name: index for index, name in enumerate(materials)}
-    assert np.any(labels == material_ids["hdpe"])
-    assert np.any(labels == material_ids["lead"])
-    assert np.any(labels == material_ids["helium3_gas"])

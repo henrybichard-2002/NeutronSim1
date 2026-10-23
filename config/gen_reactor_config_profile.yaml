@@ -666,7 +666,6 @@ tally:
   - 20.0
 visualization:
   mesh_bins: 256
-  voxel_bins: 512
   slice_thickness_cm: 0.4
   energy_bins_mev:
   - 0.0
