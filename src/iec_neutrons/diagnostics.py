@@ -339,10 +339,17 @@ def print_run_summary(
         region_names.extend(
             component.name for component in config.geometry.components
         )
+        region_names.extend(probe.name for probe in config.spectral_probes)
         edges_mev = config.tally.energy_bins_mev
         print("\n  Region neutron energies:", file=file)
         for region in region_names:
-            tally = statepoint.get_tally(name=f"flux_spectrum_{region}")
+            is_probe = region in {probe.name for probe in config.spectral_probes}
+            tally_name = (
+                f"spectral_probe_{region}"
+                if is_probe
+                else f"flux_spectrum_{region}"
+            )
+            tally = statepoint.get_tally(name=tally_name)
             summary = _spectrum_summary(_means(tally, "flux"), edges_mev)
             if summary is None:
                 print(f"    {region}: no scored neutron track length", file=file)
@@ -356,6 +363,44 @@ def print_run_summary(
                 print(
                     f"    {display_name}: mean {mean_energy:.3f} MeV; "
                     f"maximum-bin upper edge {maximum:.2f} MeV",
+                    file=file,
+                )
+
+        if config.custom_source is not None:
+            source_spectrum_path = Path(statepoint_path).parent / "source_birth_spectrum.csv"
+            if not source_spectrum_path.is_file():
+                raise ValueError(
+                    "Custom-source birth-energy data is missing beside the "
+                    "statepoint; rerun with the current custom-source runner."
+                )
+            with source_spectrum_path.open(newline="", encoding="utf-8") as source_file:
+                source_rows = list(csv.DictReader(source_file))
+            if not source_rows:
+                raise ValueError(
+                    f"Custom-source birth-energy file is empty: {source_spectrum_path}"
+                )
+            probabilities = [
+                float(row["probability_per_source_neutron"])
+                for row in source_rows
+            ]
+            source_edges = tuple(
+                [float(source_rows[0]["energy_lower_mev"])]
+                + [float(row["energy_upper_mev"]) for row in source_rows]
+            )
+            if (
+                len(probabilities) != len(edges_mev) - 1
+                or source_edges != edges_mev
+                or not math.isclose(sum(probabilities), 1.0)
+            ):
+                raise ValueError(
+                    "Custom-source birth-energy data does not match the "
+                    "configured tally bins."
+                )
+            summary = _spectrum_summary(probabilities, edges_mev)
+            if summary is not None:
+                print(
+                    f"    custom source births: mean {summary[0]:.3f} MeV; "
+                    f"maximum-bin upper edge {summary[1]:.2f} MeV",
                     file=file,
                 )
 

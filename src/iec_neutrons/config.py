@@ -485,6 +485,24 @@ def load_config(path: str | Path) -> SimulationConfig:
         )
         names.add(name)
 
+    if air_sphere_radius is not None and any(
+        math.sqrt(
+            sum(
+                (abs(position) + extent) ** 2
+                for position, extent in zip(
+                    component.center_cm,
+                    component.half_extents_cm,
+                    strict=True,
+                )
+            )
+        )
+        >= air_sphere_radius
+        for component in components
+    ):
+        raise ConfigError(
+            "geometry components must fit inside geometry.air_sphere_radius_cm"
+        )
+
     layer_names = {layer.name for layer in layers}
     component_names = {component.name for component in components}
     for component in components:
@@ -693,6 +711,7 @@ def load_config(path: str | Path) -> SimulationConfig:
         raise ConfigError("visualization.energy_bins_mev must be strictly increasing")
     if map_edges[0] < bins[0] or map_edges[-1] > bins[-1]:
         raise ConfigError("visualization.energy_bins_mev must fit within the tally energy range")
+    max_z = world_height / 2 if world_height is not None else world_radius
     visualization = VisualizationConfig(
         mesh_bins=_positive_int(
             visualization_data.get("mesh_bins", 100), "visualization.mesh_bins"
@@ -721,15 +740,19 @@ def load_config(path: str | Path) -> SimulationConfig:
         marginal_z_cm=_number(
             visualization_data.get("marginal_z_cm", 0.0),
             "visualization.marginal_z_cm",
-            minimum=-world_radius,
+            minimum=-max_z,
         ),
     )
     if abs(visualization.marginal_x_cm) > world_radius:
         raise ConfigError("visualization.marginal_x_cm must lie within the world radius")
     if abs(visualization.marginal_y_cm) > world_radius:
         raise ConfigError("visualization.marginal_y_cm must lie within the world radius")
-    if abs(visualization.marginal_z_cm) > world_radius:
-        raise ConfigError("visualization.marginal_z_cm must lie within the world radius")
+    if abs(visualization.marginal_z_cm) > max_z:
+        raise ConfigError(
+            "visualization.marginal_z_cm must lie within the world height"
+            if world_height is not None
+            else "visualization.marginal_z_cm must lie within the world radius"
+        )
 
     detector_data = _mapping(root.get("detector", {}), "detector")
     _keys(
@@ -769,17 +792,38 @@ def load_config(path: str | Path) -> SimulationConfig:
         detector.width_y_cm / 2,
         detector.thickness_z_cm / 2,
     )
-    if detector.enabled and math.sqrt(
-        sum(
-            (abs(position) + extent) ** 2
-            for position, extent in zip(
-                (detector.x_cm, detector.y_cm, detector.z_cm),
-                detector_extent,
-                strict=True,
+    if detector.enabled:
+        detector_sphere_extent = math.sqrt(
+            sum(
+                (abs(position) + extent) ** 2
+                for position, extent in zip(
+                    (detector.x_cm, detector.y_cm, detector.z_cm),
+                    detector_extent,
+                    strict=True,
+                )
             )
         )
-    ) >= world_radius:
-        raise ConfigError("detector volume must fit inside geometry.world_radius_cm")
+        if (
+            air_sphere_radius is not None
+            and detector_sphere_extent >= air_sphere_radius
+        ):
+            raise ConfigError(
+                "detector volume must fit inside geometry.air_sphere_radius_cm"
+            )
+        if world_height is None:
+            detector_outside_world = detector_sphere_extent >= world_radius
+        else:
+            detector_outside_world = (
+                math.hypot(
+                    abs(detector.x_cm) + detector.width_x_cm / 2,
+                    abs(detector.y_cm) + detector.width_y_cm / 2,
+                )
+                >= world_radius
+                or abs(detector.z_cm) + detector.thickness_z_cm / 2
+                >= world_height / 2
+            )
+        if detector_outside_world:
+            raise ConfigError("detector volume must fit inside the configured world boundary")
 
     physics_data = _mapping(root.get("physics", {}), "physics")
     _keys(physics_data, set(), {"photon_transport"}, "physics")
@@ -914,16 +958,40 @@ def load_config(path: str | Path) -> SimulationConfig:
         if not isinstance(raw_centers, list) or not raw_centers or len(custom_source.reactor_centers_cm) != len(raw_centers):
             raise ConfigError("custom_source.reactor_centers_cm must contain [x_cm, y_cm] pairs")
         if any(
+            (
+                math.sqrt(
+                    (abs(x_cm) + source.radius_cm) ** 2
+                    + (abs(y_cm) + source.radius_cm) ** 2
+                    + (source.height_cm / 2) ** 2
+                )
+                >= world_radius
+                if world_height is None
+                else (
+                    math.hypot(
+                        abs(x_cm) + source.radius_cm,
+                        abs(y_cm) + source.radius_cm,
+                    )
+                    >= world_radius
+                    or source.height_cm / 2 >= world_height / 2
+                )
+            )
+            for x_cm, y_cm in custom_source.reactor_centers_cm
+        ):
+            raise ConfigError(
+                "custom_source reactor source volumes must fit inside geometry.world_radius_cm"
+            )
+        if air_sphere_radius is not None and any(
             math.sqrt(
                 (abs(x_cm) + source.radius_cm) ** 2
                 + (abs(y_cm) + source.radius_cm) ** 2
                 + (source.height_cm / 2) ** 2
             )
-            >= world_radius
+            >= air_sphere_radius
             for x_cm, y_cm in custom_source.reactor_centers_cm
         ):
             raise ConfigError(
-                "custom_source reactor source volumes must fit inside geometry.world_radius_cm"
+                "custom_source reactor source volumes must fit inside "
+                "geometry.air_sphere_radius_cm"
             )
 
     normalization = None
@@ -990,13 +1058,34 @@ def load_config(path: str | Path) -> SimulationConfig:
                 "surface component axis"
             )
         radius_cm = surface_component.dimensions_cm[0]
-        if math.sqrt(
+        if (
+            math.sqrt(
+                (abs(surface_component.center_cm[0]) + radius_cm + sample_width) ** 2
+                + (abs(surface_component.center_cm[1]) + sample_width / 2) ** 2
+                + (sample_width / 2) ** 2
+            )
+            >= world_radius
+            if world_height is None
+            else (
+                math.hypot(
+                    abs(surface_component.center_cm[0]) + radius_cm + sample_width,
+                    abs(surface_component.center_cm[1]) + sample_width / 2,
+                )
+                >= world_radius
+                or sample_width / 2 >= world_height / 2
+            )
+        ):
+            raise ConfigError(
+                "normalization sampling volume must fit inside geometry.world_radius_cm"
+            )
+        if air_sphere_radius is not None and math.sqrt(
             (abs(surface_component.center_cm[0]) + radius_cm + sample_width) ** 2
             + (abs(surface_component.center_cm[1]) + sample_width / 2) ** 2
             + (sample_width / 2) ** 2
-        ) >= world_radius:
+        ) >= air_sphere_radius:
             raise ConfigError(
-                "normalization sampling volume must fit inside geometry.world_radius_cm"
+                "normalization sampling volume must fit inside "
+                "geometry.air_sphere_radius_cm"
             )
         normalization = FluxNormalizationConfig(
             surface_flux_n_cm2_s=surface_flux,

@@ -107,30 +107,30 @@ export OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/${CONFIG_STEM}.xml"
 "$OPENMC_ENV/bin/python" -m iec_neutrons.cli run "$CONFIG"
 ```
 
-For the pure-deuterium D-D compiled source, use the custom-source runner. The
-`genDD_reactor.yaml` configuration includes its source parameters:
+For configurations with a `custom_source` section, the standard `run` command
+automatically compiles and uses the configured IEC fusion source. For example,
+the `genDD_reactor.yaml` configuration includes its pure-deuterium D-D
+parameters:
 
 ```sh
 CONFIG=config/genDD_reactor.yaml
 CONFIG_STEM="$(basename "$CONFIG" .yaml)"
 export OPENMC_CROSS_SECTIONS="$PWD/config/cross_sections/${CONFIG_STEM}.xml"
-"$OPENMC_ENV/bin/python" examples/run_custom_source.py "$CONFIG"
+"$OPENMC_ENV/bin/python" -m iec_neutrons.cli run "$CONFIG"
 ```
 
-The standard runner always uses the YAML `source` block. The custom-source
-runner uses the YAML `custom_source` block when present; otherwise it uses its
-documented defaults, which can be overridden with `--parameters`.
-The standard runner is `iec_neutrons.cli run`; the compiled-source runner is
-`examples/run_custom_source.py`. Both print the statepoint path and support
-`--output-dir`. Standard runs default to `runs/<config-name>/`; compiled-source
-runs default to `runs/<config-name>-custom-source/`.
+Configurations without `custom_source` use the ordinary cylindrical source.
+The standalone `examples/run_custom_source.py` remains available for explicitly
+overriding compiled-source parameters. Both entry points accept `--output-dir`;
+the standard command defaults to `runs/<config-name>/`, while the standalone
+example defaults to `runs/<config-name>-custom-source/`.
 
 Plot either kind of run with the same command, using the YAML configuration
 and the exact statepoint path printed by the run:
 
 ```sh
 CONFIG=config/genDD_reactor.yaml
-STATEPOINT=runs/genDD_reactor-custom-source/statepoint.100.h5
+STATEPOINT=runs/genDD_reactor/statepoint.20.h5
 "$OPENMC_ENV/bin/python" -m iec_neutrons.cli plot \
   "$CONFIG" "$STATEPOINT"
 ```
@@ -147,6 +147,11 @@ The run itself writes a statepoint HDF5 file and, for He-3 configurations,
 configuration used for the run when plotting. The statepoint must contain the
 tallies expected by the current plotter; if it does not, rerun with the
 current model before plotting.
+Custom-source runs also write `source_birth_spectrum.csv` beside the statepoint.
+It contains the exact emitted-neutron energy histogram recorded by the compiled
+source, normalized as probability per source neutron. The regional survey plot
+shows this birth spectrum on a separate right-hand axis alongside the spectra
+after the reactor layers and at the external survey regions.
 
 Both run commands accept `--output-dir`. Energy bins and spatial resolution
 are set by each YAML file. XY and XZ maps are central-plane slab averages; the
@@ -177,6 +182,15 @@ fluxes, capture responses, reaction rates, and other rate-like plotted or
 reported tallies, including the He-3 CSV. Relative tally uncertainties remain
 dimensionless. Raw values in the OpenMC statepoint are unchanged and remain
 per source history.
+The profile's ambient air is contained within a 100 cm-radius sphere. The
+vacuum world boundary is a cylinder with a 100 cm radius and 200 cm height;
+space between the sphere and cylinder is vacuum. Its spectra include the exact
+custom-source birth distribution, 1 mm-thick probes immediately after the
+anode aluminium and water jacket, a 25.4 mm by 340 mm region after the outer
+cowling and 2 cm of air, a parallel 25.4 mm by 340 mm survey area 20 cm beyond
+the cowling, and 10 cm-radius, 1 mm-thick axial regions at z = -75 cm and
+z = +75 cm. The two internal probes are 1 mm by 1 mm by 340 mm to keep each
+measurement inside the thin material immediately downstream of the interface.
 
 For this profile, the run summary also reports total integrated neutron
 production rate (NPR) in neutrons/s. It is the calibrated rate of primary
@@ -211,8 +225,8 @@ Plot appearance is controlled in the `PLOT_STYLE` block near the top of
 uncertainty, geometry, and spectrum color schemes; spatial/spectrum axis
 scales; map color scales; and `xlim`, `ylim`, `zlim`, colorbar limits, and
 spectrum limits. The relative-uncertainty maps use a separate `gnuplot2`
-colormap by default. Leave limits as `None` to retain the full world-radius
-view and automatic color limits.
+colormap by default. Leave limits as `None` to retain the full configured
+world extent and automatic color limits.
 `zlim` controls the vertical extent on XZ plots; color limits are specified as
 `(minimum, maximum)`. Automatic heatmap lower color limits use the configured
 `heatmap_min_percentile` (2nd percentile by default), preventing isolated
@@ -231,12 +245,17 @@ out of every reactor cell while the component cells still replace one another
 in list order, with later components taking priority over earlier ones.
 Set `material: void` for a true vacuum/void component. Set
 `score_spectrum: true` on a component to add a fine-energy neutron-flux tally
-for that volume. `geometry.background_material` optionally fills otherwise
-unoccupied space inside the spherical world boundary; it is omitted by default,
-so the external region remains vacuum. `detector.enabled: false` suppresses
+for that volume. `geometry.background_material` optionally fills otherwise unoccupied space
+inside the world boundary; it is omitted by default, so the external region
+remains vacuum. A `geometry.world_height_cm` selects a cylindrical vacuum
+boundary (using `world_radius_cm` as its radial extent); otherwise the boundary
+is spherical. `geometry.air_sphere_radius_cm` limits background air to a sphere
+inside a cylindrical world. Top-level `spectral_probes` define box-shaped
+energy-scoring regions without replacing the material in those volumes.
+`detector.enabled: false` suppresses
 the generic rectangular detector tally and marker.
-Components and the detector scoring volume must fit inside the spherical world
-boundary.
+Components, spectral probes, and the detector scoring volume must fit inside
+the configured world boundary.
 
 ## Slotted borated-polyethylene jackets
 
@@ -270,8 +289,8 @@ Plotting writes `survey_region_neutron_spectra.png`: the main plot shows 1–16
 MeV on a linear energy axis, with a sub-MeV inset using a logarithmic energy
 axis to expose the lower-energy spectrum.
 
-Run either configuration with its matching cross-section index and the
-compiled custom-source runner:
+Run either configuration with its matching cross-section index; the standard
+run command automatically selects their configured compiled source:
 
 ```sh
 CONFIG=config/genDT_borated_jacket.yaml
@@ -347,12 +366,12 @@ cavity.
 
 ## Compiled IEC fusion source
 
-The standard `iec_neutrons.cli run` command uses the YAML `source` block,
-normally the simple cylindrical monoenergetic source. To use the compiled C++
-source, use the custom-source runner shown in the run workflow above.
-`genDD_reactor.yaml` is the ready-to-run pure-deuterium D-D configuration. Both
-run paths produce a statepoint; plot them with the same command and the
-statepoint path printed at the end of either run.
+The standard `iec_neutrons.cli run` command automatically uses the compiled C++
+source whenever the YAML has a `custom_source` block; otherwise it uses the
+simple cylindrical monoenergetic source. `genDD_reactor.yaml` is the
+ready-to-run pure-deuterium D-D configuration. The runner records the emitted
+neutron energies directly in the source plugin, then writes the merged
+`source_birth_spectrum.csv` after the OpenMC process exits.
 
 It models an anode/inner-cavity radius of 38 mm (76 mm cavity diameter),
 14 mm aluminium, 15 mm water, 3 mm aluminium, and a 500 mm radial air layer.
@@ -393,16 +412,15 @@ include the target flux and applied history-rate scale. When plotting an
 existing statepoint with `iec-neutrons plot`, the CSV is written beside the
 plots.
 
-The custom-source runner compiles
+The standard runner compiles
 [`custom_source.cpp`](src/iec_neutrons/custom_source.cpp) against the active
 environment's OpenMC headers and `libopenmc.so`, assigns an
 `openmc.CompiledSource`, and starts the fixed-source run. It writes output to
-`runs/<config-name>-custom-source/` by default, separate from the standard
-`runs/<config-name>/` directory. Set `OPENMC_PREFIX` if the OpenMC headers and
+`runs/<config-name>/` by default. Set `OPENMC_PREFIX` if the OpenMC headers and
 shared library are not under the active Python environment. `--source-cpp`,
 `--compiler`, `--output-dir`, and `--parameters` are available to override
-defaults. Its optional `--plot` flag is a convenience; the two-step run then
-plot workflow above is the same for standard and compiled-source statepoints.
+defaults in `examples/run_custom_source.py`; that example's optional `--plot`
+flag is a convenience.
 
 The C++ source uses the OpenMC 0.16 compiled-source ABI (`openmc_create_source`)
 and implements the Bosch-Hale total cross sections for T(d,n)4He,

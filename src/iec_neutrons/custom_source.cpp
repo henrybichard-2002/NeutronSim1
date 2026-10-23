@@ -123,7 +123,7 @@ std::vector<double> parse_number_list(const std::string& text)
     size_t consumed = 0;
     const double value = std::stod(item, &consumed);
     if (consumed != item.size() || !std::isfinite(value)) {
-      throw std::invalid_argument("Malformed number in neutral_profile parameter");
+      throw std::invalid_argument("Malformed number in numeric parameter list");
     }
     values.push_back(value);
   }

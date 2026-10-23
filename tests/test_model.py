@@ -261,12 +261,8 @@ def test_profile_air_sphere_cylindrical_world_and_spectral_regions() -> None:
         and surface.boundary_type == "vacuum"
         for surface in surfaces
     )
-    assert model.geometry.find((5.3, 0.0, 0.0))[-1].name == (
-        "spectrum_after_anode_aluminium"
-    )
-    assert model.geometry.find((6.75, 0.0, 0.0))[-1].name == (
-        "spectrum_after_water_jacket"
-    )
+    assert model.geometry.find((5.3, 0.0, 0.0))[-1].name == "water_jacket"
+    assert model.geometry.find((6.75, 0.0, 0.0))[-1].name == "outer_cowling"
     assert model.geometry.find((9.05, 0.0, 0.0))[-1].name == (
         "spectrum_after_cowling_2cm_air"
     )
@@ -279,6 +275,8 @@ def test_profile_air_sphere_cylindrical_world_and_spectral_regions() -> None:
     assert model.geometry.find((0.0, 0.0, 75.0))[-1].name == (
         "spectrum_axial_z_plus_75cm"
     )
+    assert model.geometry.find((99.0, 0.0, 0.0))[-1].name == "external background"
+    assert model.geometry.find((0.0, 0.0, 99.0))[-1].name == "external background"
     assert model.geometry.find((99.0, 0.0, 20.0))[-1].name == "external vacuum"
     assert "external background" in cells
 
@@ -295,14 +293,29 @@ def test_profile_air_sphere_cylindrical_world_and_spectral_regions() -> None:
         (100.0, config.visualization.slice_thickness_cm / 2, 100.0)
     )
     for name in (
-        "spectrum_after_anode_aluminium",
-        "spectrum_after_water_jacket",
         "spectrum_after_cowling_2cm_air",
         "spectrum_cathode_parallel_20cm_from_reactor",
         "spectrum_axial_z_minus_75cm",
         "spectrum_axial_z_plus_75cm",
     ):
         assert f"survey_spectrum_{name}" in tallies
+    for probe_name, center, size in (
+        ("after_anode_aluminium", (5.3, 0.0, 0.0), (0.1, 0.1, 34.0)),
+        ("after_water_jacket", (6.75, 0.0, 0.0), (0.1, 0.1, 34.0)),
+        ("after_cowling_2cm_air", (9.05, 0.0, 0.0), (0.1, 2.54, 34.0)),
+    ):
+        probe_tally = tallies[f"spectral_probe_{probe_name}"]
+        mesh = next(
+            item.mesh
+            for item in probe_tally.filters
+            if isinstance(item, openmc.MeshFilter)
+        )
+        assert tuple(mesh.lower_left) == pytest.approx(
+            tuple(position - extent / 2 for position, extent in zip(center, size))
+        )
+        assert tuple(mesh.upper_right) == pytest.approx(
+            tuple(position + extent / 2 for position, extent in zip(center, size))
+        )
 
 
 def test_gen_dd_reactor_geometry_and_detector_shields() -> None:

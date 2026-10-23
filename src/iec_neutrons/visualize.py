@@ -453,43 +453,47 @@ def plot_results(
                 edges_mev,
                 values / volume_cm3 / np.diff(edges_mev) * flux_scale,
             )
-    if config.custom_source is not None:
-        source_spectrum_path = statepoint_file.parent / "source_birth_spectrum.csv"
-        if not source_spectrum_path.is_file():
-            raise ValueError(
-                "Custom-source birth-energy data is missing beside the statepoint; "
-                "rerun with the current compiled-source runner."
+        if config.custom_source is not None:
+            source_spectrum_path = (
+                statepoint_file.parent / "source_birth_spectrum.csv"
             )
-        with source_spectrum_path.open(newline="", encoding="utf-8") as source_file:
-            source_rows = list(csv.DictReader(source_file))
-        if not source_rows:
-            raise ValueError(
-                f"Custom-source birth-energy file is empty: {source_spectrum_path}"
+            if not source_spectrum_path.is_file():
+                raise ValueError(
+                    "Custom-source birth-energy data is missing beside the statepoint; "
+                    "rerun with the current compiled-source runner."
+                )
+            with source_spectrum_path.open(
+                newline="", encoding="utf-8"
+            ) as source_file:
+                source_rows = list(csv.DictReader(source_file))
+            if not source_rows:
+                raise ValueError(
+                    f"Custom-source birth-energy file is empty: {source_spectrum_path}"
+                )
+            source_edges = np.asarray(
+                [float(source_rows[0]["energy_lower_mev"])]
+                + [float(row["energy_upper_mev"]) for row in source_rows],
+                dtype=float,
             )
-        source_edges = np.asarray(
-            [float(source_rows[0]["energy_lower_mev"])]
-            + [float(row["energy_upper_mev"]) for row in source_rows],
-            dtype=float,
-        )
-        source_probability = np.asarray(
-            [float(row["probability_per_source_neutron"]) for row in source_rows],
-            dtype=float,
-        )
-        if (
-            source_probability.size != len(config.tally.energy_bins_mev) - 1
-            or not np.allclose(source_edges, config.tally.energy_bins_mev)
-            or np.any(~np.isfinite(source_probability))
-            or np.any(source_probability < 0)
-            or not np.isclose(source_probability.sum(), 1.0)
-        ):
-            raise ValueError(
-                "Custom-source birth-energy data does not match the configured "
-                "energy bins or is not normalized."
+            source_probability = np.asarray(
+                [float(row["probability_per_source_neutron"]) for row in source_rows],
+                dtype=float,
             )
-        source_birth_spectrum = (
-            source_edges,
-            source_probability / np.diff(source_edges),
-        )
+            if (
+                source_probability.size != len(config.tally.energy_bins_mev) - 1
+                or not np.allclose(source_edges, config.tally.energy_bins_mev)
+                or np.any(~np.isfinite(source_probability))
+                or np.any(source_probability < 0)
+                or not np.isclose(source_probability.sum(), 1.0)
+            ):
+                raise ValueError(
+                    "Custom-source birth-energy data does not match the configured "
+                    "energy bins or is not normalized."
+                )
+            source_birth_spectrum = (
+                source_edges,
+                source_probability / np.diff(source_edges),
+            )
         detector_available = "detector_energy_spectrum" in available_names
         detector_mean = None
         detector_std_dev = None
@@ -903,7 +907,9 @@ def _validate_detector_tally(tally, config: SimulationConfig, np, openmc) -> Non
         raise ValueError("Statepoint detector energy bins do not match the supplied configuration")
 
 
-def _geometry_outlines(config: SimulationConfig, view: str, Circle, Rectangle):
+def _geometry_outlines(
+    config: SimulationConfig, view: str, Circle, Rectangle, axis
+):
     if view == "xz" and config.geometry.world_height_cm is not None:
         world_boundary = Rectangle(
             (-config.geometry.world_radius_cm, -config.geometry.world_height_cm / 2),
@@ -965,6 +971,17 @@ def _geometry_outlines(config: SimulationConfig, view: str, Circle, Rectangle):
             )
             for component in config.geometry.components
         )
+        if config.geometry.air_sphere_radius_cm is not None:
+            outlines.append(
+                Circle(
+                    (0, 0),
+                    config.geometry.air_sphere_radius_cm,
+                    fill=False,
+                    edgecolor="cyan",
+                    linewidth=1.0,
+                    linestyle="--",
+                )
+            )
         outlines.append(world_boundary)
         return outlines
 
@@ -979,26 +996,33 @@ def _geometry_outlines(config: SimulationConfig, view: str, Circle, Rectangle):
         )
     ]
     for layer in config.geometry.layers:
-        outlines.extend(
-            (
-                Rectangle(
-                    (-layer.radius_cm, -layer.height_cm / 2),
-                    layer.thickness_cm,
-                    layer.height_cm,
-                    fill=False,
-                    edgecolor="white",
-                    linewidth=0.7,
-                ),
-                Rectangle(
-                    (layer.radius_cm - layer.thickness_cm, -layer.height_cm / 2),
-                    layer.thickness_cm,
-                    layer.height_cm,
-                    fill=False,
-                    edgecolor="white",
-                    linewidth=0.7,
-                ),
-            )
+        layer_outlines = (
+            Rectangle(
+                (-layer.radius_cm, -layer.height_cm / 2),
+                layer.thickness_cm,
+                layer.height_cm,
+                fill=False,
+                edgecolor="white",
+                linewidth=0.7,
+            ),
+            Rectangle(
+                (layer.radius_cm - layer.thickness_cm, -layer.height_cm / 2),
+                layer.thickness_cm,
+                layer.height_cm,
+                fill=False,
+                edgecolor="white",
+                linewidth=0.7,
+            ),
         )
+        if config.geometry.air_sphere_radius_cm is not None:
+            clip = Circle(
+                (0, 0),
+                config.geometry.air_sphere_radius_cm,
+                transform=axis.transData,
+            )
+            for outline in layer_outlines:
+                outline.set_clip_path(clip)
+        outlines.extend(layer_outlines)
     outlines.append(
         Rectangle(
             (-config.source.radius_cm, -config.source.height_cm / 2),
@@ -1022,6 +1046,17 @@ def _geometry_outlines(config: SimulationConfig, view: str, Circle, Rectangle):
         )
         for component in config.geometry.components
     )
+    if config.geometry.air_sphere_radius_cm is not None:
+        outlines.append(
+            Circle(
+                (0, 0),
+                config.geometry.air_sphere_radius_cm,
+                fill=False,
+                edgecolor="cyan",
+                linewidth=1.0,
+                linestyle="--",
+            )
+        )
     outlines.append(world_boundary)
     return outlines
 
@@ -1191,7 +1226,7 @@ def _plot_spatial_map(
     else:
         options["norm"] = Normalize(vmin=low, vmax=high)
     image = axis.imshow(masked, origin="lower", extent=extent, aspect="equal", **options)
-    for outline in _geometry_outlines(config, view, Circle, Rectangle):
+    for outline in _geometry_outlines(config, view, Circle, Rectangle, axis):
         axis.add_patch(outline)
     if show_contours:
         _add_dotted_contours(axis, masked, extent, np)
@@ -1272,7 +1307,7 @@ def _plot_energy_map(
             cmap=style.energy_cmap,
             norm=norm,
         )
-        for outline in _geometry_outlines(config, view, Circle, Rectangle):
+        for outline in _geometry_outlines(config, view, Circle, Rectangle, axis):
             axis.add_patch(outline)
         _detector_overlay(axis, config, view, Rectangle)
         _set_spatial_axes(
@@ -1360,6 +1395,11 @@ def _plot_marginals(
 
     horizontal_centers = (horizontal_edges[:-1] + horizontal_edges[1:]) / 2
     vertical_centers = (vertical_edges[:-1] + vertical_edges[1:]) / 2
+    vertical_world_extent = (
+        config.geometry.world_height_cm / 2
+        if view == "xz" and config.geometry.world_height_cm is not None
+        else world_radius
+    )
     figure, axes = plt.subplots(1, 2, figsize=(12, 4.5), constrained_layout=True)
     axes[0].plot(horizontal_centers, first_values, color="tab:blue")
     axes[0].set_xlim(*(style.xlim or (-world_radius, world_radius)))
@@ -1388,7 +1428,7 @@ def _plot_marginals(
     axes[1].plot(vertical_centers, second_values, color="tab:orange")
     axes[1].set_xlim(*(style.ylim if view == "xy" and style.ylim else
                        style.zlim if view == "xz" and style.zlim else
-                       (-world_radius, world_radius)))
+                       (-vertical_world_extent, vertical_world_extent)))
     axes[1].set_xscale(style.marginal_xscale)
     axes[1].set_yscale(style.marginal_yscale)
     if style.marginal_ylim is not None:
@@ -1909,6 +1949,15 @@ def _geometry_legend(config: SimulationConfig, Patch, colors):
             ),
         )
     )
+    if config.geometry.air_sphere_radius_cm is not None:
+        entries.append(
+            Patch(
+                facecolor="none",
+                edgecolor="cyan",
+                linestyle="--",
+                label="Air-sphere boundary",
+            )
+        )
     return entries
 
 
@@ -1952,6 +2001,18 @@ def _plot_geometry(
                 label="Vacuum boundary",
             )
         )
+        if config.geometry.air_sphere_radius_cm is not None:
+            axis.add_patch(
+                Circle(
+                    (0, 0),
+                    config.geometry.air_sphere_radius_cm,
+                    fill=False,
+                    edgecolor="cyan",
+                    linewidth=1.0,
+                    linestyle="--",
+                    label="Air-sphere boundary",
+                )
+            )
         _detector_overlay(axis, config, view, Rectangle)
         _set_spatial_axes(axis, view, style, world_radius)
         axis.set_xlabel("x (cm)")
@@ -1961,16 +2022,23 @@ def _plot_geometry(
     else:
         for layer in config.geometry.layers:
             for left in (-layer.radius_cm, layer.radius_cm - layer.thickness_cm):
-                axis.add_patch(
-                    Rectangle(
-                        (left, -layer.height_cm / 2),
-                        layer.thickness_cm,
-                        layer.height_cm,
-                        facecolor=colors[layer.material],
-                        edgecolor="black",
-                        linewidth=0.6,
-                    )
+                layer_patch = Rectangle(
+                    (left, -layer.height_cm / 2),
+                    layer.thickness_cm,
+                    layer.height_cm,
+                    facecolor=colors[layer.material],
+                    edgecolor="black",
+                    linewidth=0.6,
                 )
+                if config.geometry.air_sphere_radius_cm is not None:
+                    layer_patch.set_clip_path(
+                        Circle(
+                            (0, 0),
+                            config.geometry.air_sphere_radius_cm,
+                            transform=axis.transData,
+                        )
+                    )
+                axis.add_patch(layer_patch)
         axis.add_patch(
             Rectangle(
                 (-config.source.radius_cm, -config.source.height_cm / 2),
@@ -1981,6 +2049,18 @@ def _plot_geometry(
             )
         )
         _add_component_patches(axis, config, view, Circle, Rectangle, colors)
+        if config.geometry.air_sphere_radius_cm is not None:
+            axis.add_patch(
+                Circle(
+                    (0, 0),
+                    config.geometry.air_sphere_radius_cm,
+                    fill=False,
+                    edgecolor="cyan",
+                    linewidth=1.0,
+                    linestyle="--",
+                    label="Air-sphere boundary",
+                )
+            )
         axis.add_patch(
             Rectangle(
                 (-world_radius, -vertical_world_extent),
