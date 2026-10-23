@@ -1139,33 +1139,57 @@ def _add_dotted_contours(axis, data, extent, np, obstacles=()) -> None:
         for dy in (-1.0, 0.0, 1.0)
     ]
 
-    def clear(point) -> bool:
-        pixel = transform.transform(point)
-        return not any(
-            patch.contains_point((pixel[0] + dx, pixel[1] + dy))
-            for patch in local_obstacles
-            for dx, dy in offsets
-        )
+    display_paths = [
+        patch.get_transform().transform_path(patch.get_path())
+        for patch in local_obstacles
+    ]
+    offset_array = np.asarray(offsets)
+    window = axis.get_window_extent()
+    margin = 40.0
+
+    def clear_mask(pixels):
+        """Vectorised test: True where no obstacle lies under the label box."""
+        if not display_paths or len(pixels) == 0:
+            return np.ones(len(pixels), dtype=bool)
+        probes = (pixels[:, None, :] + offset_array[None, :, :]).reshape(-1, 2)
+        blocked = np.zeros(len(probes), dtype=bool)
+        for path in display_paths:
+            blocked |= path.contains_points(probes)
+        return ~blocked.reshape(len(pixels), len(offsets)).any(axis=1)
 
     placed: list = []
     for level, segments in zip(contours.levels, contours.allsegs):
-        candidates = []
-        for segment in segments:
-            for point in segment[:: max(1, len(segment) // 200)]:
-                if not (x_low < point[0] < x_high and y_low < point[1] < y_high):
-                    continue
-                pixel = transform.transform(point)
-                margin = 40.0
-                inside = axis.get_window_extent()
-                if not (
-                    inside.x0 + margin < pixel[0] < inside.x1 - margin
-                    and inside.y0 + margin < pixel[1] < inside.y1 - margin
-                ):
-                    continue
-                if clear(point) and all(
-                    np.hypot(*(pixel - other)) > 70.0 for other in placed
-                ):
-                    candidates.append((point, pixel))
+        points = [
+            segment[:: max(1, len(segment) // 200)]
+            for segment in segments
+            if len(segment)
+        ]
+        if not points:
+            continue
+        points = np.concatenate(points)
+        points = points[
+            (points[:, 0] > x_low)
+            & (points[:, 0] < x_high)
+            & (points[:, 1] > y_low)
+            & (points[:, 1] < y_high)
+        ]
+        if len(points) == 0:
+            continue
+        pixels = transform.transform(points)
+        keep = (
+            (pixels[:, 0] > window.x0 + margin)
+            & (pixels[:, 0] < window.x1 - margin)
+            & (pixels[:, 1] > window.y0 + margin)
+            & (pixels[:, 1] < window.y1 - margin)
+        )
+        points, pixels = points[keep], pixels[keep]
+        free = clear_mask(pixels)
+        points, pixels = points[free], pixels[free]
+        candidates = [
+            (point, pixel)
+            for point, pixel in zip(points, pixels)
+            if all(np.hypot(*(pixel - other)) > 70.0 for other in placed)
+        ]
         if not candidates:
             continue
         point, pixel = candidates[len(candidates) // 2]
