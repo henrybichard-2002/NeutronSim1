@@ -30,6 +30,17 @@ def test_spectrum_summary_handles_empty_spectrum() -> None:
     assert _spectrum_summary([0.0, 0.0], (0.0, 1.0, 2.0)) is None
 
 
+def test_export_he3_spectra_csv_skips_void_components(tmp_path: Path) -> None:
+    config = load_config(CONFIG_DIR / "gen_reactor_config_profile.yaml")
+
+    assert any(component.material == "void" for component in config.geometry.components)
+    assert export_he3_spectra_csv(
+        tmp_path / "statepoint.h5",
+        config,
+        tmp_path / "he3_detector_spectra.csv",
+    ) is None
+
+
 def test_flux_calibration_uses_reference_cube_volume() -> None:
     np = pytest.importorskip("numpy")
     config = load_config(CONFIG_DIR / "gen_reactor_config_profile.yaml")

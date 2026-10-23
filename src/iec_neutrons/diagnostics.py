@@ -110,7 +110,8 @@ def export_he3_spectra_csv(
     detector_components = [
         component
         for component in config.geometry.components
-        if "He3" in (config.materials[component.material].nuclides or {})
+        if component.material != "void"
+        and "He3" in (config.materials[component.material].nuclides or {})
     ]
     if not detector_components:
         return None
