@@ -324,11 +324,6 @@ def load_config(path: str | Path) -> SimulationConfig:
                 raise ConfigError(
                     f"{component_path}.{key} must be a list of unique non-empty names"
                 )
-        if carve_from_layers and carve_from_components:
-            raise ConfigError(
-                f"{component_path} cannot set both carve_from_layers and "
-                "carve_from_components"
-            )
         if not isinstance(name, str) or not name.strip():
             raise ConfigError(f"{component_path}.name must be a non-empty string")
         if name in names:

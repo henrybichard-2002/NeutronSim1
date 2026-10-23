@@ -168,10 +168,32 @@ def test_borated_jacket_configurations(
         if component.name in {"jacket_gap", "jacket_1_gap"}
     )
     assert gap.center_cm[0] == pytest.approx(13.65)
-    assert gap.dimensions_cm == pytest.approx((27.3, 14.0, 90.0))
+    assert gap.dimensions_cm == pytest.approx((27.3, 14.0, 110.6))
     assert gap.carve_from_layers == (
         "hdpe_jacket", "borated_polyethylene_jacket", "lead_jacket"
     )
+    assert gap.carve_from_components == (
+        "jacket_top_cap_hdpe",
+        "jacket_top_cap_borated_polyethylene",
+        "jacket_top_cap_lead",
+        "jacket_bottom_cap_hdpe",
+        "jacket_bottom_cap_borated_polyethylene",
+        "jacket_bottom_cap_lead",
+    )
+    cap_components = {
+        component.name: component for component in config.geometry.components
+        if "_cap_" in component.name and component.name.startswith("jacket")
+    }
+    for end, sign in (("top", 1), ("bottom", -1)):
+        for material, length, center_z in (
+            ("hdpe", 15.0, 42.5),
+            ("borated_polyethylene", 5.0, 52.5),
+            ("lead", 0.3, 55.15),
+        ):
+            cap = cap_components[f"jacket_{end}_cap_{material}"]
+            assert cap.material == material
+            assert cap.dimensions_cm == pytest.approx((27.3, length))
+            assert cap.center_cm == pytest.approx((0.0, 0.0, sign * center_z))
     if filename == "genDT_dual_borated_jacket.yaml":
         second_gap = next(
             component for component in config.geometry.components
@@ -182,6 +204,12 @@ def test_borated_jacket_configurations(
             "reactor_2_hdpe",
             "reactor_2_borated_polyethylene",
             "reactor_2_lead",
+            "reactor_2_top_cap_hdpe",
+            "reactor_2_top_cap_borated_polyethylene",
+            "reactor_2_top_cap_lead",
+            "reactor_2_bottom_cap_hdpe",
+            "reactor_2_bottom_cap_borated_polyethylene",
+            "reactor_2_bottom_cap_lead",
         )
     borated = config.materials["borated_polyethylene"]
     assert borated.elements == pytest.approx(

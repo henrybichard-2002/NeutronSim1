@@ -224,14 +224,17 @@ use the D-T custom source and the same 70 cm tall reactor vessel as
 5 wt% natural-boron polyethylene, followed by 3 mm of lead. Both polymer
 materials use a density of 0.94 g/cm3; the BPE recipe is 5 wt% natural boron
 and 95 wt% polyethylene, represented by normalized atom fractions in YAML.
-The 14 cm-wide opening extends radially from the jacket's outer edge to the
-reactor axis and spans the jacket's full height. Its cut is restricted to the
-jacket materials: the cavity, vessel, and other reactor volume remain intact.
-Consequently, a neutron traveling on the +x axis passes through no jacket
-material, while still traversing the reactor's own vessel layers. The single
-jacket opens toward +x. The dual configuration places reactor centers 100 cm
-apart and points the openings toward each other; each opening reaches its
-reactor's axis.
+Top and bottom full-radius caps start at the reactor ends (z = ±35 cm) and
+extend outward in the same order: 15 cm HDPE, 5 cm BPE, then 3 mm lead. The
+existing aluminium reactor end caps remain in place. Each capped assembly
+therefore spans 110.6 cm vertically. The 14 cm-wide opening extends radially
+from the jacket's outer edge to the reactor axis and through the full capped
+height. Its cut is restricted to jacket and cap material: the cavity, vessel,
+and other reactor volume remain intact. Consequently, a neutron traveling on
+the +x axis passes through no jacket material, while still traversing the
+reactor's own vessel layers. The single jacket opens toward +x. The dual
+configuration places reactor centers 100 cm apart and points the openings
+toward each other; each opening reaches its reactor's axis.
 the compiled source samples the two identical reactor centers with equal
 probability. The four spectrum scoring cylinders remain fixed relative to
 reactor 1: at 50 cm radius in the gap direction, opposite the gap, and at

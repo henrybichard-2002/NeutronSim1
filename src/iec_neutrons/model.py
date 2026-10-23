@@ -150,28 +150,40 @@ def build_model(config: SimulationConfig):
     }
     component_scopes = list(component_regions)
     for index, component in enumerate(config.geometry.components):
-        if component.carve_from_layers:
-            target_regions = [
-                layer_regions[name] for name in component.carve_from_layers
+        target_component_indices = {
+            i
+            for i, target in enumerate(config.geometry.components)
+            if target.name in component.carve_from_components
+        }
+        target_regions = [
+            layer_regions[name] for name in component.carve_from_layers
+        ]
+        for target_name in component.carve_from_components:
+            target_index = next(
+                i for i, target in enumerate(config.geometry.components)
+                if target.name == target_name
+            )
+            later_material_regions = [
+                component_regions[later_index]
+                for later_index in range(target_index + 1, len(component_regions))
+                if later_index not in scoped_component_indices
             ]
-            component_scopes[index] = component_scopes[index] & union(target_regions)
-        elif component.carve_from_components:
-            target_regions = []
-            for target_name in component.carve_from_components:
-                target_index = next(
-                    i for i, target in enumerate(config.geometry.components)
-                    if target.name == target_name
-                )
-                later_material_regions = [
-                    component_regions[later_index]
-                    for later_index in range(target_index + 1, len(component_regions))
-                    if later_index not in scoped_component_indices
-                ]
-                target_region = component_regions[target_index]
-                if later_material_regions:
-                    target_region = target_region & ~union(later_material_regions)
-                target_regions.append(target_region)
-            component_scopes[index] = component_scopes[index] & union(target_regions)
+            target_region = component_regions[target_index]
+            if later_material_regions:
+                target_region = target_region & ~union(later_material_regions)
+            target_regions.append(target_region)
+        if target_regions:
+            component_scopes[index] = (
+                component_scopes[index] & union(target_regions)
+            )
+            protected_component_regions = [
+                component_regions[other_index]
+                for other_index in range(len(component_regions))
+                if other_index != index
+                and other_index not in target_component_indices
+            ]
+            if protected_component_regions:
+                component_scopes[index] &= ~union(protected_component_regions)
 
     for index, component in enumerate(config.geometry.components):
         region = component_scopes[index]

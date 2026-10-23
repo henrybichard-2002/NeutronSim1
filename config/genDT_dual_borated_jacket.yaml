@@ -62,15 +62,42 @@ geometry:
       height_cm: 100.0
       material: air
   components:
-    - name: jacket_1_gap
-      shape: box
-      center_cm: [13.65, 0.0, 0.0]
-      size_cm: [27.3, 14.0, 90.0]
-      material: air
-      carve_from_layers:
-        - hdpe_jacket
-        - borated_polyethylene_jacket
-        - lead_jacket
+    - name: jacket_top_cap_hdpe
+      shape: cylinder
+      center_cm: [0.0, 0.0, 42.5]
+      radius_cm: 27.3
+      length_cm: 15.0
+      material: hdpe
+    - name: jacket_top_cap_borated_polyethylene
+      shape: cylinder
+      center_cm: [0.0, 0.0, 52.5]
+      radius_cm: 27.3
+      length_cm: 5.0
+      material: borated_polyethylene
+    - name: jacket_top_cap_lead
+      shape: cylinder
+      center_cm: [0.0, 0.0, 55.15]
+      radius_cm: 27.3
+      length_cm: 0.3
+      material: lead
+    - name: jacket_bottom_cap_hdpe
+      shape: cylinder
+      center_cm: [0.0, 0.0, -42.5]
+      radius_cm: 27.3
+      length_cm: 15.0
+      material: hdpe
+    - name: jacket_bottom_cap_borated_polyethylene
+      shape: cylinder
+      center_cm: [0.0, 0.0, -52.5]
+      radius_cm: 27.3
+      length_cm: 5.0
+      material: borated_polyethylene
+    - name: jacket_bottom_cap_lead
+      shape: cylinder
+      center_cm: [0.0, 0.0, -55.15]
+      radius_cm: 27.3
+      length_cm: 0.3
+      material: lead
     - name: aluminium_cap_top
       shape: cylinder
       center_cm: [0.0, 0.0, 35.7]
@@ -126,6 +153,42 @@ geometry:
       radius_cm: 3.8
       length_cm: 70.0
       material: void
+    - name: reactor_2_top_cap_hdpe
+      shape: cylinder
+      center_cm: [100.0, 0.0, 42.5]
+      radius_cm: 27.3
+      length_cm: 15.0
+      material: hdpe
+    - name: reactor_2_top_cap_borated_polyethylene
+      shape: cylinder
+      center_cm: [100.0, 0.0, 52.5]
+      radius_cm: 27.3
+      length_cm: 5.0
+      material: borated_polyethylene
+    - name: reactor_2_top_cap_lead
+      shape: cylinder
+      center_cm: [100.0, 0.0, 55.15]
+      radius_cm: 27.3
+      length_cm: 0.3
+      material: lead
+    - name: reactor_2_bottom_cap_hdpe
+      shape: cylinder
+      center_cm: [100.0, 0.0, -42.5]
+      radius_cm: 27.3
+      length_cm: 15.0
+      material: hdpe
+    - name: reactor_2_bottom_cap_borated_polyethylene
+      shape: cylinder
+      center_cm: [100.0, 0.0, -52.5]
+      radius_cm: 27.3
+      length_cm: 5.0
+      material: borated_polyethylene
+    - name: reactor_2_bottom_cap_lead
+      shape: cylinder
+      center_cm: [100.0, 0.0, -55.15]
+      radius_cm: 27.3
+      length_cm: 0.3
+      material: lead
     - name: reactor_2_aluminium_cap_top
       shape: cylinder
       center_cm: [100.0, 0.0, 35.7]
@@ -138,15 +201,37 @@ geometry:
       radius_cm: 3.8
       length_cm: 1.4
       material: aluminium
+    - name: jacket_1_gap
+      shape: box
+      center_cm: [13.65, 0.0, 0.0]
+      size_cm: [27.3, 14.0, 110.6]
+      material: air
+      carve_from_layers:
+        - hdpe_jacket
+        - borated_polyethylene_jacket
+        - lead_jacket
+      carve_from_components:
+        - jacket_top_cap_hdpe
+        - jacket_top_cap_borated_polyethylene
+        - jacket_top_cap_lead
+        - jacket_bottom_cap_hdpe
+        - jacket_bottom_cap_borated_polyethylene
+        - jacket_bottom_cap_lead
     - name: jacket_2_gap
       shape: box
       center_cm: [86.35, 0.0, 0.0]
-      size_cm: [27.3, 14.0, 90.0]
+      size_cm: [27.3, 14.0, 110.6]
       material: air
       carve_from_components:
         - reactor_2_hdpe
         - reactor_2_borated_polyethylene
         - reactor_2_lead
+        - reactor_2_top_cap_hdpe
+        - reactor_2_top_cap_borated_polyethylene
+        - reactor_2_top_cap_lead
+        - reactor_2_bottom_cap_hdpe
+        - reactor_2_bottom_cap_borated_polyethylene
+        - reactor_2_bottom_cap_lead
     # These four survey volumes stay fixed relative to reactor 1.
     - name: spectrum_gap_aligned
       shape: cylinder

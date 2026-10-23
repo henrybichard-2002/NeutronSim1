@@ -312,6 +312,33 @@ def test_dual_borated_reactor_builds_two_sources_and_four_survey_tallies() -> No
     assert model.geometry.find((75.0, 0.0, 0.0))[-1].name == "jacket_2_gap"
     assert model.geometry.find((80.0, 0.0, 0.0))[-1].name == "jacket_2_gap"
     assert model.geometry.find((95.0, 0.0, 0.0))[-1].name == "reactor_2_aluminium_1"
+    assert model.geometry.find((-10.0, 0.0, 40.0))[-1].name == "jacket_top_cap_hdpe"
+    assert model.geometry.find((-24.0, 0.0, 52.5))[-1].name == (
+        "jacket_top_cap_borated_polyethylene"
+    )
+    assert model.geometry.find((-27.0, 0.0, 55.15))[-1].name == "jacket_top_cap_lead"
+    assert model.geometry.find((-10.0, 0.0, -40.0))[-1].name == "jacket_bottom_cap_hdpe"
+    assert model.geometry.find((-24.0, 0.0, -52.5))[-1].name == (
+        "jacket_bottom_cap_borated_polyethylene"
+    )
+    assert model.geometry.find((-27.0, 0.0, -55.15))[-1].name == (
+        "jacket_bottom_cap_lead"
+    )
+    assert model.geometry.find((10.0, 0.0, 40.0))[-1].name == "jacket_1_gap"
+    assert model.geometry.find((10.0, 0.0, 52.5))[-1].name == "jacket_1_gap"
+    assert model.geometry.find((0.0, 0.0, 35.7))[-1].name == "aluminium_cap_top"
+    assert model.geometry.find((0.0, 0.0, -35.7))[-1].name == "aluminium_cap_bottom"
+    assert model.geometry.find((90.0, 0.0, 40.0))[-1].name == "jacket_2_gap"
+    assert model.geometry.find((90.0, 0.0, 52.5))[-1].name == "jacket_2_gap"
+    assert model.geometry.find((110.0, 0.0, 40.0))[-1].name == (
+        "reactor_2_top_cap_hdpe"
+    )
+    assert model.geometry.find((100.0, 0.0, 35.7))[-1].name == (
+        "reactor_2_aluminium_cap_top"
+    )
+    assert model.geometry.find((100.0, 0.0, -35.7))[-1].name == (
+        "reactor_2_aluminium_cap_bottom"
+    )
     for component in config.geometry.components:
         if not component.score_spectrum:
             continue
