@@ -285,9 +285,12 @@ reactor 1: at 50 cm radius in the gap direction, opposite the gap, and at
 either side of the gap-aligned position, each offset by 5 cm in y. Their active
 dimensions match the previous He-3 gas volume (2.34 cm diameter by 30.8 cm
 high), but these are virtual air-filled scoring regions, not He-3 detectors.
-Plotting writes `survey_region_neutron_spectra.png`: the main plot shows 1–16
-MeV on a linear energy axis, with a sub-MeV inset using a logarithmic energy
-axis to expose the lower-energy spectrum.
+Plotting writes `survey_region_neutron_spectra.png`: the main plot shows 0–20
+MeV on a linear energy axis in 0.1 MeV bins, with an inset on a logarithmic
+energy axis covering the thermal and epithermal range (0.001 eV–10 keV). The
+region-integrated spectrum plot uses the same layout. The profile's tally
+energy grid is 0.1 MeV bins from 0.1 to 20 MeV plus fine logarithmic bins
+below 10 keV to feed the inset.
 
 Run either configuration with its matching cross-section index; the standard
 run command automatically selects their configured compiled source:

@@ -1489,8 +1489,9 @@ def _plot_survey_spectra(
     source_birth_spectrum=None,
 ) -> Path:
     figure, axis = plt.subplots(figsize=(10, 6), constrained_layout=True)
-    inset = axis.inset_axes([0.08, 0.54, 0.4, 0.4])
     source_axis = axis.twinx() if source_birth_spectrum is not None else None
+    # Anchor the inset to the top-most axes so the twin axis cannot draw over it.
+    inset = (source_axis or axis).inset_axes([0.08, 0.54, 0.4, 0.4])
     source_inset = inset.twinx() if source_birth_spectrum is not None else None
     grid = np.linspace(
         0.0,
@@ -1554,6 +1555,9 @@ def _plot_survey_spectra(
     _set_spectrum_yscale(inset, inset_values, "log", np)
     _limit_log_range(inset, inset_values, np)
     inset.set_zorder(5)
+    if source_inset is not None:
+        source_inset.set_zorder(6)
+        source_inset.patch.set_visible(False)
     inset.set_title("Thermal/epithermal: 0.001 eV–10 keV", fontsize=8)
     inset.set_xlabel("Neutron energy (MeV)", fontsize=7)
     inset.tick_params(axis="both", labelsize=7)
