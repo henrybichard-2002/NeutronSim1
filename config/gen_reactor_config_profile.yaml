@@ -1,0 +1,686 @@
+# IEC profile adapted to the project config schema. Original z coordinates are translated by -72.95 cm.
+# The cathode and custom source are centered at z=0; source height is 35 cm and radius is 4.15 cm.
+# Annular hardware is represented by material cylinders plus ordered void-cylinder components.
+# Weight fractions were converted to normalized element atom fractions for OpenMC add_element().
+# cathode_inner_radius_cm is omitted because the existing compiled-source schema uses cathode_radius_cm.
+source:
+  radius_cm: 4.15
+  height_cm: 35.0
+  energy_mev: 14.1
+custom_source:
+  cathode_radius_cm: 0.51
+  voltage_kev: 90.0
+  neutral_temperature_k: 300.0
+  tritium_fraction: 0.5
+  zone_beam_target: 0.6
+  zone_beam_wall: 0.3
+  zone_beam_beam: 0.1
+  source_strength: 1.0
+  neutral_profile:
+  - - 0.0
+    - 1.0
+  - - 1.0
+    - 1.0
+  reactor_centers_cm:
+  - - 0.0
+    - 0.0
+normalization:
+  surface_flux_n_cm2_s: 2500000.0
+  surface_component: outer_cowling
+  sample_width_cm: 0.1
+geometry:
+  cavity:
+    radius_cm: 4.15
+    height_cm: 70.0
+  background_material: air
+  layers:
+  - name: ambient_air
+    radius_cm: 90.0
+    height_cm: 140.0
+    material: air
+  components:
+  - name: outer_cowling
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 8.95
+    radius_cm: 7.0
+    length_cm: 114.2
+    material: al6061
+  - name: void_inside_outer_cowling
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 8.95
+    radius_cm: 6.7
+    length_cm: 114.2
+    material: void
+  - name: lv_water_seal
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -41.9
+    radius_cm: 6.7
+    length_cm: 1.9
+    material: al6061
+  - name: water_jacket
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -7.65
+    radius_cm: 6.7
+    length_cm: 66.6
+    material: water_cooling_mix
+  - name: water_jacket_continuation_1
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 40.85
+    radius_cm: 6.7
+    length_cm: 30.4
+    material: water_cooling_mix
+  - name: cooling_tube_holder
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 57.55
+    radius_cm: 6.7
+    length_cm: 3.0
+    material: al6061
+  - name: water_jacket_continuation_2
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 60.3
+    radius_cm: 6.7
+    length_cm: 2.5
+    material: water_cooling_mix
+  - name: top_plate
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 63.8
+    radius_cm: 6.7
+    length_cm: 4.5
+    material: al6061
+  - name: o_ring
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -41.6
+    radius_cm: 5.55
+    length_cm: 0.5
+    material: fkm_viton
+  - name: void_inside_water_jacket
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -7.65
+    radius_cm: 5.2
+    length_cm: 66.6
+    material: void
+  - name: anode_enclosure_lower_sleeve
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -37.125
+    radius_cm: 5.2
+    length_cm: 7.65
+    material: al6061
+  - name: anode_enclosure
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -3.825
+    radius_cm: 5.2
+    length_cm: 58.95
+    material: al6061
+  - name: void_inside_lv_water_seal
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -41.9
+    radius_cm: 5.05
+    length_cm: 1.9
+    material: void
+  - name: void_inside_o_ring
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -41.6
+    radius_cm: 5.05
+    length_cm: 0.5
+    material: void
+  - name: void_inside_anode_enclosure_lower_sleeve
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -37.125
+    radius_cm: 5.05
+    length_cm: 7.65
+    material: void
+  - name: getter_injection_chamber_face
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -42.075
+    radius_cm: 5.05
+    length_cm: 1.55
+    material: ss316
+  - name: getter_injection_chamber
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -37.3
+    radius_cm: 5.05
+    length_cm: 8.0
+    material: ss316
+  - name: getter_injection_chamber_vacuum
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -37.3
+    radius_cm: 4.7
+    length_cm: 8.0
+    material: void
+  - name: main_reactor_vacuum_cavity
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -3.825
+    radius_cm: 4.15
+    length_cm: 58.95
+    material: void
+  - name: void_inside_water_jacket_continuation_1
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 40.85
+    radius_cm: 4.1
+    length_cm: 30.4
+    material: void
+  - name: void_inside_cooling_tube_holder
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 57.55
+    radius_cm: 4.1
+    length_cm: 3.0
+    material: void
+  - name: void_inside_water_jacket_continuation_2
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 60.3
+    radius_cm: 4.1
+    length_cm: 2.5
+    material: void
+  - name: hv_outer_cowling
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 43.6
+    radius_cm: 4.1
+    length_cm: 35.9
+    material: ss316
+  - name: void_inside_hv_outer_cowling
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 43.6
+    radius_cm: 4.0
+    length_cm: 35.9
+    material: void
+  - name: inner_hv_housing_lower
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 44.9
+    radius_cm: 3.965
+    length_cm: 14.0
+    material: delrin_pom
+  - name: upper_cathode_ceramic_continuation
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 31.775
+    radius_cm: 3.825
+    length_cm: 12.25
+    material: alumina
+  - name: void_inside_top_plate
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 63.8
+    radius_cm: 3.5
+    length_cm: 4.5
+    material: void
+  - name: getter_cap_2
+    shape: cylinder
+    center_cm:
+    - 2.0
+    - 0.0
+    - -47.895
+    radius_cm: 3.5
+    length_cm: 2.57
+    material: ss316
+  - name: end_cap
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 64.191
+    radius_cm: 3.5
+    length_cm: 1.582
+    material: ss316
+  - name: inner_hv_housing_upper
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 57.65
+    radius_cm: 3.175
+    length_cm: 11.5
+    material: delrin_pom
+  - name: void_inside_upper_cathode_ceramic_continuation
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 31.775
+    radius_cm: 2.975
+    length_cm: 12.25
+    material: void
+  - name: hv_oil_lower
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 31.775
+    radius_cm: 2.975
+    length_cm: 12.25
+    material: transformer_oil
+  - name: lower_cathode_ceramic
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - -25.4
+    radius_cm: 2.6
+    length_cm: 15.8
+    material: alumina
+  - name: upper_cathode_ceramic
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 21.575
+    radius_cm: 2.6
+    length_cm: 8.15
+    material: alumina
+  - name: void_inside_inner_hv_housing_lower
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 44.9
+    radius_cm: 2.5
+    length_cm: 14.0
+    material: void
+  - name: hv_oil_upper
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 44.9
+    radius_cm: 2.5
+    length_cm: 14.0
+    material: transformer_oil
+  - name: getter_tube_2
+    shape: cylinder
+    center_cm:
+    - 2.0
+    - 0.0
+    - -44.73
+    radius_cm: 2.085
+    length_cm: 3.76
+    material: ss316
+  - name: getter_tube_2_vacuum
+    shape: cylinder
+    center_cm:
+    - 2.0
+    - 0.0
+    - -44.73
+    radius_cm: 1.935
+    length_cm: 3.76
+    material: void
+  - name: getter_chamber_face_hole_2
+    shape: cylinder
+    center_cm:
+    - 2.0
+    - 0.0
+    - -42.075
+    radius_cm: 1.935
+    length_cm: 1.55
+    material: void
+  - name: getter_cap_1
+    shape: cylinder
+    center_cm:
+    - -2.5
+    - 0.0
+    - -61.35
+    radius_cm: 1.7
+    length_cm: 2.0
+    material: ss316
+  - name: getter_tube_1
+    shape: cylinder
+    center_cm:
+    - -2.5
+    - 0.0
+    - -51.6
+    radius_cm: 0.95
+    length_cm: 17.5
+    material: ss316
+  - name: getter_tube_1_vacuum
+    shape: cylinder
+    center_cm:
+    - -2.5
+    - 0.0
+    - -51.6
+    radius_cm: 0.8
+    length_cm: 17.5
+    material: void
+  - name: getter_chamber_face_hole_1
+    shape: cylinder
+    center_cm:
+    - -2.5
+    - 0.0
+    - -42.075
+    radius_cm: 0.8
+    length_cm: 1.55
+    material: void
+  - name: void_inside_hv_oil_lower
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 31.775
+    radius_cm: 0.6225
+    length_cm: 12.25
+    material: void
+  - name: void_inside_hv_oil_upper
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 44.9
+    radius_cm: 0.6225
+    length_cm: 14.0
+    material: void
+  - name: void_inside_inner_hv_housing_upper
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 57.65
+    radius_cm: 0.6225
+    length_cm: 11.5
+    material: void
+  - name: void_inside_end_cap
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 64.191
+    radius_cm: 0.6225
+    length_cm: 1.582
+    material: void
+  - name: hv_connection_lower
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 29.9
+    radius_cm: 0.6225
+    length_cm: 8.5
+    material: hv_insulator_cu
+  - name: hv_connection_upper
+    shape: cylinder
+    center_cm:
+    - 0.0
+    - 0.0
+    - 52.7
+    radius_cm: 0.6225
+    length_cm: 37.1
+    material: hv_insulator_cu
+  world_radius_cm: 120.0
+materials:
+  air:
+    density_g_cm3: 0.001225
+    elements:
+      N: 0.78084
+      O: 0.20946
+      Ar: 0.00934
+      C: 0.00036
+  al6061:
+    density_g_cm3: 2.7
+    elements:
+      Al: 0.9773078822993341
+      Mg: 0.011161561049709551
+      Si: 0.005795657789253273
+      Fe: 0.002428938041952583
+      Cu: 0.0012807507280514089
+      Cr: 0.0010434960686574997
+      Zn: 0.0004149556288986573
+      Ti: 0.0005667583941429709
+  ss316:
+    density_g_cm3: 8.0
+    elements:
+      Fe: 0.6507531350667676
+      Cr: 0.18140041633218176
+      Ni: 0.11343647608375598
+      Mo: 0.01445642629321187
+      Mn: 0.020198410382902397
+      Si: 0.019755135841180375
+  alumina:
+    density_g_cm3: 3.95
+    elements:
+      Al: 2
+      O: 3
+  water_cooling_mix:
+    density_g_cm3: 1.1275
+    elements:
+      H: 0.6351311889732655
+      O: 0.3176215454340323
+      Al: 0.04724726559270221
+    thermal_scattering:
+    - c_H_in_H2O
+  transformer_oil:
+    density_g_cm3: 0.88
+    elements:
+      C: 1
+      H: 2
+    thermal_scattering:
+    - c_H_in_CH2
+  delrin_pom:
+    density_g_cm3: 1.41
+    elements:
+      C: 1
+      H: 2
+      O: 1
+    thermal_scattering:
+    - c_H_in_CH2
+  hv_insulator_cu:
+    density_g_cm3: 1.724
+    elements:
+      C: 0.3109229703849671
+      H: 0.6160053220928936
+      Cu: 0.07307170752213923
+    thermal_scattering:
+    - c_H_in_CH2
+  fkm_viton:
+    density_g_cm3: 1.85
+    elements:
+      C: 0.29140195981255695
+      H: 0.24802479243627656
+      F: 0.46057324775116654
+settings:
+  particles: 100000
+  batches: 20
+  inactive: 10
+  seed: 12345
+tally:
+  energy_bins_mev:
+  - 0.0
+  - 1.0e-09
+  - 1.2589254117941663e-09
+  - 1.584893192461111e-09
+  - 1.9952623149688828e-09
+  - 2.511886431509582e-09
+  - 3.1622776601683795e-09
+  - 3.981071705534969e-09
+  - 5.011872336272715e-09
+  - 6.309573444801943e-09
+  - 7.943282347242822e-09
+  - 1.0e-08
+  - 1.2589254117941661e-08
+  - 1.5848931924611143e-08
+  - 1.9952623149688786e-08
+  - 2.511886431509582e-08
+  - 3.162277660168379e-08
+  - 3.981071705534969e-08
+  - 5.011872336272725e-08
+  - 6.30957344480193e-08
+  - 7.943282347242822e-08
+  - 1.0e-07
+  - 1.2589254117941662e-07
+  - 1.584893192461114e-07
+  - 1.9952623149688787e-07
+  - 2.5118864315095823e-07
+  - 3.162277660168379e-07
+  - 3.981071705534969e-07
+  - 5.011872336272725e-07
+  - 6.30957344480193e-07
+  - 7.943282347242822e-07
+  - 1.0e-06
+  - 1.2589254117941661e-06
+  - 1.584893192461114e-06
+  - 1.9952623149688787e-06
+  - 2.5118864315095823e-06
+  - 3.162277660168379e-06
+  - 3.981071705534969e-06
+  - 5.011872336272725e-06
+  - 6.30957344480193e-06
+  - 7.943282347242822e-06
+  - 1.0e-05
+  - 1.2589254117941661e-05
+  - 1.584893192461114e-05
+  - 1.9952623149688786e-05
+  - 2.5118864315095822e-05
+  - 3.1622776601683795e-05
+  - 3.9810717055349695e-05
+  - 5.011872336272725e-05
+  - 6.309573444801929e-05
+  - 7.943282347242822e-05
+  - 0.0001
+  - 0.0001258925411794166
+  - 0.00015848931924611142
+  - 0.00019952623149688788
+  - 0.0002511886431509582
+  - 0.00031622776601683794
+  - 0.0003981071705534969
+  - 0.0005011872336272725
+  - 0.000630957344480193
+  - 0.0007943282347242822
+  - 0.001
+  - 0.0012589254117941662
+  - 0.001584893192461114
+  - 0.001995262314968879
+  - 0.002511886431509582
+  - 0.0031622776601683794
+  - 0.003981071705534969
+  - 0.005011872336272725
+  - 0.00630957344480193
+  - 0.00794328234724282
+  - 0.01
+  - 0.012589254117941661
+  - 0.01584893192461114
+  - 0.01995262314968879
+  - 0.025118864315095822
+  - 0.03162277660168379
+  - 0.03981071705534969
+  - 0.05011872336272725
+  - 0.0630957344480193
+  - 0.07943282347242822
+  - 0.1
+  - 0.12589254117941662
+  - 0.1584893192461111
+  - 0.19952623149688828
+  - 0.25118864315095824
+  - 0.31622776601683794
+  - 0.3981071705534969
+  - 0.5011872336272715
+  - 0.6309573444801942
+  - 0.7943282347242822
+  - 1.0
+  - 1.2589254117941662
+  - 1.584893192461111
+  - 1.9952623149688828
+  - 2.5118864315095824
+  - 3.1622776601683795
+  - 3.981071705534969
+  - 5.011872336272715
+  - 6.309573444801943
+  - 7.943282347242821
+  - 10.0
+  - 12.589254117941662
+  - 15.84893192461111
+  - 19.95262314968883
+  - 20.0
+visualization:
+  mesh_bins: 256
+  voxel_bins: 512
+  slice_thickness_cm: 0.4
+  energy_bins_mev:
+  - 0.0
+  - 1.0e-07
+  - 1.0e-06
+  - 0.1
+  - 1.0
+  - 2.0
+  - 8.0
+  - 12.0
+  - 13.8
+  - 14.2
+  - 15.0
+  - 16.0
+  marginal_x_cm: 20.0
+  marginal_y_cm: 0.0
+  marginal_z_cm: 0.0

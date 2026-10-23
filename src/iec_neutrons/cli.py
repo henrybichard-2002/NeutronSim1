@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from .config import ConfigError, load_config
+from .diagnostics import export_he3_spectra_csv, print_run_summary
 from .model import export_model, run_model
 from .visualize import plot_results
 
@@ -49,12 +50,23 @@ def main() -> int:
         elif arguments.command == "run":
             statepoint = run_model(config, output_dir)
             print(f"OpenMC run complete; statepoint written to {statepoint}")
+            print_run_summary(statepoint, config)
+            csv_path = export_he3_spectra_csv(
+                statepoint, config, Path(statepoint).parent / "he3_detector_spectra.csv"
+            )
+            if csv_path is not None:
+                print(f"He-3 detector spectra written to {csv_path}")
         else:
             plot_dir = arguments.output_dir or arguments.statepoint.parent / "plots"
+            csv_path = export_he3_spectra_csv(
+                arguments.statepoint, config, plot_dir / "he3_detector_spectra.csv"
+            )
             plot_paths = plot_results(config, arguments.statepoint, plot_dir)
             print(f"Plots written to {plot_dir.resolve()}:")
             for plot_path in plot_paths:
                 print(f"  {plot_path.name}")
+            if csv_path is not None:
+                print(f"He-3 detector spectra written to {csv_path}")
     except (RuntimeError, ValueError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 1

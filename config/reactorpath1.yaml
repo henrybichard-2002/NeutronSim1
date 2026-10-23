@@ -1,0 +1,94 @@
+# Radial layer thicknesses are measured outward from the cylindrical source.
+# Lengths are cm unless a layer explicitly uses thickness_mm; energies are MeV.
+source:
+  radius_cm: 0.5
+  height_cm: 35.0
+  energy_mev: 14.1
+
+detector:
+  # Volume-averaged flux scoring volume: 0.4 x 0.4 cm face, 500 um thick.
+  # Change x_cm, y_cm and z_cm to move the detector and rerun the simulation.
+  x_cm: 10.0
+  y_cm: 0.0
+  z_cm: 0.0
+  width_x_cm: 0.4
+  width_y_cm: 0.4
+  thickness_z_cm: 0.05
+
+geometry:
+  cavity:
+    radius_cm: 0.5
+    height_cm: 60.0
+  layers:
+    - name: air_1
+      thickness_mm: 7.3
+      height_cm: 60.0
+      material: air
+    - name: aluminium_1
+      thickness_mm: 2.9
+      height_cm: 60.0
+      material: aluminium
+    - name: air_2
+      thickness_mm: 30.6
+      height_cm: 60.0
+      material: air
+    - name: aluminium_2
+      thickness_mm: 11.0
+      height_cm: 60.0
+      material: aluminium
+    - name: water_1
+      thickness_mm: 15.0
+      height_cm: 60.0
+      material: water
+    - name: aluminium_3
+      thickness_mm: 3.0
+      height_cm: 60.0
+      material: aluminium
+    - name: air_3
+      thickness_mm: 120.0
+      height_cm: 70.0
+      material: air
+  world_radius_cm: 50.0
+
+materials:
+  air:
+    density_g_cm3: 0.001225
+    elements:
+      N: 0.78084
+      O: 0.20946
+      Ar: 0.00934
+      C: 0.00036
+  aluminium:
+    density_g_cm3: 2.70
+    elements:
+      Al: 1
+  water:
+    density_g_cm3: 1.0
+    elements:
+      H: 2
+      O: 1
+    thermal_scattering:
+      - c_H_in_H2O
+
+settings:
+  particles: 1000000
+  batches: 100
+  inactive: 0
+  seed: 12345
+
+tally:
+  energy_min_mev: 0.1
+  energy_max_mev: 16
+  energy_bin_width_mev: 0.1
+
+visualization:
+  mesh_bins: 256
+  slice_thickness_cm: 0.4
+  # Fewer broad energy groups for spatial-map panels; the detector spectrum
+  # and region spectra retain the full 0.1 MeV bins above.
+  energy_bins_mev: [ 0.1, 1.0, 8.0, 13.5, 13.7, 13.9, 14.1]
+  # XY: x profile at this y and y profile at this x.
+  # XZ: x profile at this z and z profile at this x.
+  marginal_x_cm: 10.0
+  marginal_y_cm: 0.0
+  marginal_z_cm: 0.0

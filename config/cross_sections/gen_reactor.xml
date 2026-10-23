@@ -1,0 +1,24 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<cross_sections>
+  <directory>/home/Romulus1/NeutronsInMatter</directory>
+  <library materials="H1" path="Npaths/JEFF40-Processed-OPENMC-HDF5/1-H-1g-293.6.h5" type="neutron"/>
+  <library materials="H2" path="Npaths/JEFF40-Processed-OPENMC-HDF5/1-H-2g-293.6.h5" type="neutron"/>
+  <library materials="C12" path="Npaths/JEFF40-Processed-OPENMC-HDF5/6-C-12g-293.6.h5" type="neutron"/>
+  <library materials="C13" path="Npaths/JEFF40-Processed-OPENMC-HDF5/6-C-13g-293.6.h5" type="neutron"/>
+  <library materials="N14" path="Npaths/JEFF40-Processed-OPENMC-HDF5/7-N-14g-293.6.h5" type="neutron"/>
+  <library materials="N15" path="Npaths/JEFF40-Processed-OPENMC-HDF5/7-N-15g-293.6.h5" type="neutron"/>
+  <library materials="O16" path="Npaths/JEFF40-Processed-OPENMC-HDF5/8-O-16g-293.6.h5" type="neutron"/>
+  <library materials="O17" path="Npaths/JEFF40-Processed-OPENMC-HDF5/8-O-17g-293.6.h5" type="neutron"/>
+  <library materials="O18" path="Npaths/JEFF40-Processed-OPENMC-HDF5/8-O-18g-293.6.h5" type="neutron"/>
+  <library materials="Al27" path="Npaths/JEFF40-Processed-OPENMC-HDF5/13-Al-27g-293.6.h5" type="neutron"/>
+  <library materials="Ar36" path="Npaths/JEFF40-Processed-OPENMC-HDF5/18-Ar-36g-293.6.h5" type="neutron"/>
+  <library materials="Ar38" path="Npaths/JEFF40-Processed-OPENMC-HDF5/18-Ar-38g-293.6.h5" type="neutron"/>
+  <library materials="Ar40" path="Npaths/JEFF40-Processed-OPENMC-HDF5/18-Ar-40g-293.6.h5" type="neutron"/>
+  <library materials="Pb204" path="Npaths/JEFF40-Processed-OPENMC-HDF5/82-Pb-204g-293.6.h5" type="neutron"/>
+  <library materials="Pb206" path="Npaths/JEFF40-Processed-OPENMC-HDF5/82-Pb-206g-293.6.h5" type="neutron"/>
+  <library materials="Pb207" path="Npaths/JEFF40-Processed-OPENMC-HDF5/82-Pb-207g-293.6.h5" type="neutron"/>
+  <library materials="Pb208" path="Npaths/JEFF40-Processed-OPENMC-HDF5/82-Pb-208g-293.6.h5" type="neutron"/>
+  <library materials="He3" path="Npaths/JEFF40-Processed-OPENMC-HDF5/2-He-3g-293.6.h5" type="neutron"/>
+  <library materials="c_H_in_CH2" path="outputs/openmc_neutron_shielding/openmc_hdf5_data/c_H_in_CH2.h5" type="thermal"/>
+  <library materials="c_H_in_H2O" path="outputs/neutron_stack_simulation/openmc_hdf5_data/c_H_in_H2O.h5" type="thermal"/>
+</cross_sections>
