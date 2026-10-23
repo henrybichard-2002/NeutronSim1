@@ -604,7 +604,7 @@ def plot_results(
                 plt,
                 PLOT_STYLE,
                 Normalize,
-                show_contours=False,
+                show_contours=True,
             )
         )
         paths.append(
@@ -1114,8 +1114,8 @@ def _add_dotted_contours(axis, data, extent, np, obstacles=()) -> None:
         y,
         field,
         levels=levels,
-        colors="white",
-        linewidths=0.75,
+        colors="black",
+        linewidths=0.9,
         linestyles=":",
         alpha=0.9,
     )
@@ -1321,8 +1321,20 @@ def _plot_spatial_map(
 ) -> Path:
     import numpy as np
 
+    horizontal, vertical = _view_limits(
+        view,
+        style,
+        config.geometry.world_radius_cm,
+        config.geometry.world_height_cm / 2
+        if config.geometry.world_height_cm is not None
+        else None,
+    )
+    panel_height = 6.5
+    panel_width = panel_height * (horizontal[1] - horizontal[0]) / (
+        vertical[1] - vertical[0]
+    )
     figure, axis = plt.subplots(
-        figsize=(8, 7) if view == "xy" else (7, 11.5), constrained_layout=True
+        figsize=(panel_width + 2.2, panel_height + 1.0), constrained_layout=True
     )
     masked = np.ma.masked_invalid(data)
     positive = masked.compressed()
@@ -1359,7 +1371,10 @@ def _plot_spatial_map(
         if config.geometry.world_height_cm is not None
         else None,
     )
-    figure.colorbar(image, ax=axis, label=colorbar_label)
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    colorbar_axis = make_axes_locatable(axis).append_axes("right", size="4%", pad=0.12)
+    figure.colorbar(image, cax=colorbar_axis, label=colorbar_label)
     if show_contours:
         _add_dotted_contours(axis, masked, extent, np, outlines)
     figure.savefig(str(path), dpi=180)
@@ -2110,13 +2125,22 @@ def _set_spectrum_yscale(axis, datasets, requested_scale: str, np) -> bool:
     return has_positive_values
 
 
+def _reactor_components(config: SimulationConfig):
+    """Components drawn on geometry plots: reactor parts only, no air or probe regions."""
+    return [
+        component
+        for component in config.geometry.components
+        if component.material != "air" and not component.score_spectrum
+    ]
+
+
 def _material_colors(config: SimulationConfig, style: PlotStyle):
     import matplotlib.pyplot as plt
 
     names = list(
         dict.fromkeys(
             [layer.material for layer in config.geometry.layers]
-            + [component.material for component in config.geometry.components]
+            + [component.material for component in _reactor_components(config)]
         )
     )
     palette = plt.get_cmap(style.geometry_cmap, max(len(names), 1))
@@ -2259,7 +2283,7 @@ def _plot_geometry(
 
 
 def _add_component_patches(axis, config, view, Circle, Rectangle, colors):
-    for component in config.geometry.components:
+    for component in _reactor_components(config):
         axis.add_patch(
             _component_patch(
                 component,
