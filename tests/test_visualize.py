@@ -58,8 +58,8 @@ def test_spatial_heatmap_uses_world_extent_and_dotted_contours(
     )
 
     figure, axis = figures[0]
-    assert axis.get_xlim() == pytest.approx((-world_radius, world_radius))
-    assert axis.get_ylim() == pytest.approx((-world_radius, world_radius))
+    assert axis.get_xlim() == pytest.approx((-15.0, 15.0))
+    assert axis.get_ylim() == pytest.approx((-15.0, 15.0))
     assert axis.collections
     assert any("e" in label.get_text() for label in axis.texts)
     assert any("Detector" in label.get_text() for label in axis.texts)
@@ -185,8 +185,12 @@ def test_geometry_plot_covers_world_radius(view: str, tmp_path: Path, monkeypatc
     )
 
     figure, axis = figures[0]
-    assert axis.get_xlim() == pytest.approx((-world_radius, world_radius))
-    assert axis.get_ylim() == pytest.approx((-world_radius, world_radius))
+    expected_x, expected_y = (
+        ((-15.0, 15.0), (-15.0, 15.0)) if view == "xy" else ((-30.0, 30.0), (-80.0, 80.0))
+    )
+    assert axis.get_xlim() == pytest.approx(expected_x)
+    assert axis.get_ylim() == pytest.approx(expected_y)
+    assert axis.get_aspect() == 1.0
     assert any("Detector" in label.get_text() for label in axis.texts)
     figure.clear()
 

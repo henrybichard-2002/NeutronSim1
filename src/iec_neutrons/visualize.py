@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import textwrap
 from pathlib import Path
 import csv
 import sys
@@ -33,9 +34,10 @@ class PlotStyle:
     spectrum_yscale: str = "log"
     marginal_xscale: str = "linear"
     marginal_yscale: str = "log"
-    xlim: tuple[float, float] | None = None
-    ylim: tuple[float, float] | None = None
-    zlim: tuple[float, float] | None = None
+    xy_xlim: tuple[float, float] | None = (-15.0, 15.0)
+    xy_ylim: tuple[float, float] | None = (-15.0, 15.0)
+    xz_xlim: tuple[float, float] | None = (-30.0, 30.0)
+    xz_zlim: tuple[float, float] | None = (-80.0, 80.0)
     spatial_clim: tuple[float, float] | None = None
     energy_clim: tuple[float, float] | None = None
     uncertainty_clim: tuple[float, float] | None = None
@@ -44,9 +46,9 @@ class PlotStyle:
     marginal_ylim: tuple[float, float] | None = None
 
 
-# Edit this block to customize plot appearance. None limits retain the full
-# world-radius axes; explicit limits zoom in. "zlim" controls the XZ vertical
-# axis, and *_clim values set colorbar limits (vmin, vmax).
+# Edit this block to customize plot appearance. The xy_* and xz_* limits set
+# the cross-section windows (cm); None retains the full world extent. Spatial
+# plots keep equal x/y/z scales, and *_clim values set colorbar limits.
 PLOT_STYLE = PlotStyle()
 
 
@@ -1086,19 +1088,27 @@ def _component_patch(component, view, Circle, Rectangle, **style):
         height,
         **style,
     )
-def _add_dotted_contours(axis, data, extent, np) -> None:
+def _add_dotted_contours(axis, data, extent, np, obstacles=()) -> None:
+    """Draw one contour per decade, labelled only where no geometry is under the text.
+
+    The axis limits, aspect and layout must be final so that display
+    coordinates are valid.
+    """
     field = np.ma.masked_where(~np.isfinite(data) | (data <= 0), data)
-    positive = field.compressed()
-    if positive.size < 2:
-        return
-    lower, upper = np.percentile(positive, [10, 90])
-    if not upper > lower:
-        return
-    levels = np.unique(np.geomspace(lower, upper, 5))[1:-1]
-    if not levels.size:
-        return
     x = np.linspace(extent[0], extent[1], data.shape[1])
     y = np.linspace(extent[2], extent[3], data.shape[0])
+    x_low, x_high = sorted(axis.get_xlim())
+    y_low, y_high = sorted(axis.get_ylim())
+    visible = field[
+        np.ix_((y >= y_low) & (y <= y_high), (x >= x_low) & (x <= x_high))
+    ].compressed()
+    if visible.size < 2:
+        return
+    first = int(np.ceil(np.log10(visible.min())))
+    last = int(np.floor(np.log10(visible.max())))
+    levels = [10.0**power for power in range(first, last + 1)]
+    if not levels:
+        return
     contours = axis.contour(
         x,
         y,
@@ -1109,17 +1119,70 @@ def _add_dotted_contours(axis, data, extent, np) -> None:
         linestyles=":",
         alpha=0.9,
     )
-    labels = axis.clabel(
-        contours,
-        fmt=lambda level: f"{level:.1e}",
-        inline=True,
-        fontsize=6,
-        colors="black",
+
+    figure = axis.figure
+    figure.canvas.draw()
+    transform = axis.transData
+    corners = transform.transform(
+        [(x_low, y_low), (x_low, y_high), (x_high, y_low), (x_high, y_high)]
     )
-    for label in labels:
-        label.set_bbox(
-            {"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 0.5}
+    # Ignore boundaries that enclose the whole view (world, air sphere).
+    local_obstacles = [
+        patch
+        for patch in obstacles
+        if not all(patch.contains_point(corner) for corner in corners)
+    ]
+    half_width, half_height = 26.0, 11.0
+    offsets = [
+        (dx * half_width, dy * half_height)
+        for dx in (-1.0, -0.5, 0.0, 0.5, 1.0)
+        for dy in (-1.0, 0.0, 1.0)
+    ]
+
+    def clear(point) -> bool:
+        pixel = transform.transform(point)
+        return not any(
+            patch.contains_point((pixel[0] + dx, pixel[1] + dy))
+            for patch in local_obstacles
+            for dx, dy in offsets
         )
+
+    placed: list = []
+    for level, segments in zip(contours.levels, contours.allsegs):
+        candidates = []
+        for segment in segments:
+            for point in segment[:: max(1, len(segment) // 200)]:
+                if not (x_low < point[0] < x_high and y_low < point[1] < y_high):
+                    continue
+                pixel = transform.transform(point)
+                margin = 40.0
+                inside = axis.get_window_extent()
+                if not (
+                    inside.x0 + margin < pixel[0] < inside.x1 - margin
+                    and inside.y0 + margin < pixel[1] < inside.y1 - margin
+                ):
+                    continue
+                if clear(point) and all(
+                    np.hypot(*(pixel - other)) > 70.0 for other in placed
+                ):
+                    candidates.append((point, pixel))
+        if not candidates:
+            continue
+        point, pixel = candidates[len(candidates) // 2]
+        placed.append(pixel)
+        labels = axis.clabel(
+            contours,
+            levels=[level],
+            manual=[tuple(point)],
+            fmt=lambda value: f"$10^{{{int(round(np.log10(value)))}}}$",
+            inline=True,
+            fontsize=6,
+            colors="black",
+        )
+        for label in labels:
+            label.set_bbox(
+                {"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 0.5}
+            )
 
 
 def _detector_overlay(axis, config: SimulationConfig, view: str, Rectangle) -> None:
@@ -1167,6 +1230,21 @@ def _detector_overlay(axis, config: SimulationConfig, view: str, Rectangle) -> N
     )
 
 
+def _view_limits(view, style: PlotStyle, world_radius, world_half_height=None):
+    """Return (horizontal, vertical) axis limits in cm for a view."""
+    if view == "xy":
+        horizontal, vertical = style.xy_xlim, style.xy_ylim
+        default_vertical = (-world_radius, world_radius)
+    else:
+        horizontal, vertical = style.xz_xlim, style.xz_zlim
+        half = world_half_height if world_half_height is not None else world_radius
+        default_vertical = (-half, half)
+    return (
+        horizontal or (-world_radius, world_radius),
+        vertical or default_vertical,
+    )
+
+
 def _set_spatial_axes(
     axis,
     view: str,
@@ -1176,15 +1254,10 @@ def _set_spatial_axes(
 ) -> None:
     axis.set_xscale(style.spatial_xscale)
     axis.set_yscale(style.spatial_yscale)
-    axis.set_xlim(*(style.xlim or (-world_radius, world_radius)))
-    vertical_limit = style.ylim if view == "xy" else style.zlim
-    axis.set_ylim(
-        *(vertical_limit or (
-            (-world_half_height, world_half_height)
-            if view == "xz" and world_half_height is not None
-            else (-world_radius, world_radius)
-        ))
-    )
+    horizontal, vertical = _view_limits(view, style, world_radius, world_half_height)
+    axis.set_xlim(*horizontal)
+    axis.set_ylim(*vertical)
+    axis.set_aspect("equal", adjustable="box")
 
 
 def _plot_spatial_map(
@@ -1206,7 +1279,9 @@ def _plot_spatial_map(
 ) -> Path:
     import numpy as np
 
-    figure, axis = plt.subplots(figsize=(8, 7), constrained_layout=True)
+    figure, axis = plt.subplots(
+        figsize=(8, 7) if view == "xy" else (7, 11.5), constrained_layout=True
+    )
     masked = np.ma.masked_invalid(data)
     positive = masked.compressed()
     positive = positive[positive > 0]
@@ -1226,14 +1301,13 @@ def _plot_spatial_map(
     else:
         options["norm"] = Normalize(vmin=low, vmax=high)
     image = axis.imshow(masked, origin="lower", extent=extent, aspect="equal", **options)
-    for outline in _geometry_outlines(config, view, Circle, Rectangle, axis):
+    outlines = _geometry_outlines(config, view, Circle, Rectangle, axis)
+    for outline in outlines:
         axis.add_patch(outline)
-    if show_contours:
-        _add_dotted_contours(axis, masked, extent, np)
     _detector_overlay(axis, config, view, Rectangle)
     axis.set_xlabel("x (cm)")
     axis.set_ylabel("y (cm)" if view == "xy" else "z (cm)")
-    axis.set_title(title)
+    axis.set_title(textwrap.fill(title, 48), fontsize=10)
     _set_spatial_axes(
         axis,
         view,
@@ -1244,6 +1318,8 @@ def _plot_spatial_map(
         else None,
     )
     figure.colorbar(image, ax=axis, label=colorbar_label)
+    if show_contours:
+        _add_dotted_contours(axis, masked, extent, np, outlines)
     figure.savefig(str(path), dpi=180)
     plt.close(figure)
     return path
@@ -1402,7 +1478,10 @@ def _plot_marginals(
     )
     figure, axes = plt.subplots(1, 2, figsize=(12, 4.5), constrained_layout=True)
     axes[0].plot(horizontal_centers, first_values, color="tab:blue")
-    axes[0].set_xlim(*(style.xlim or (-world_radius, world_radius)))
+    horizontal_limits, vertical_limits = _view_limits(
+        view, style, world_radius, vertical_world_extent
+    )
+    axes[0].set_xlim(*horizontal_limits)
     axes[0].set_xscale(style.marginal_xscale)
     axes[0].set_yscale(style.marginal_yscale)
     if style.marginal_ylim is not None:
@@ -1426,9 +1505,7 @@ def _plot_marginals(
         axes[0].legend(fontsize="small")
     axes[0].grid(True, which="both", alpha=0.25)
     axes[1].plot(vertical_centers, second_values, color="tab:orange")
-    axes[1].set_xlim(*(style.ylim if view == "xy" and style.ylim else
-                       style.zlim if view == "xz" and style.zlim else
-                       (-vertical_world_extent, vertical_world_extent)))
+    axes[1].set_xlim(*vertical_limits)
     axes[1].set_xscale(style.marginal_xscale)
     axes[1].set_yscale(style.marginal_yscale)
     if style.marginal_ylim is not None:

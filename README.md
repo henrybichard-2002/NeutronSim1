@@ -211,9 +211,9 @@ maps, relative-uncertainty maps, line profiles at the configured
 `visualization.marginal_*_cm` positions, region spectra, and the configured
 detector spectra. He-3 configurations additionally produce a combined
 flux/capture spectrum on a logarithmic y scale and a position-resolved capture
-heatmap. Spatial maps span the configured world radius,
-including vacuum; total-flux heatmaps include dotted, numerically labelled
-contours. Geometry figures show configured materials and components. Line
+heatmap. Spatial maps and geometry views use equal
+x/y/z scales and default windows of ±15 cm (XY), and ±30 cm by ±80 cm (XZ); total-flux heatmaps include dotted contours at every
+order of magnitude, labelled only where the text does not overlap reactor geometry. Geometry figures show configured materials and components. Line
 profiles use the nearest mesh-bin center to the requested coordinate.
 Geometry XY/XZ figures use one shared color per material, list each material
 once in the legend, and omit individual component labels to keep the views clear.
@@ -223,11 +223,11 @@ extra above installs it.
 Plot appearance is controlled in the `PLOT_STYLE` block near the top of
 `src/iec_neutrons/visualize.py`. It centralizes spatial, energy-map,
 uncertainty, geometry, and spectrum color schemes; spatial/spectrum axis
-scales; map color scales; and `xlim`, `ylim`, `zlim`, colorbar limits, and
+scales; map color scales; and `xy_xlim`, `xy_ylim`, `xz_xlim`, `xz_zlim`, colorbar limits, and
 spectrum limits. The relative-uncertainty maps use a separate `gnuplot2`
 colormap by default. Leave limits as `None` to retain the full configured
 world extent and automatic color limits.
-`zlim` controls the vertical extent on XZ plots; color limits are specified as
+`xz_zlim` controls the vertical extent on XZ plots; color limits are specified as
 `(minimum, maximum)`. Automatic heatmap lower color limits use the configured
 `heatmap_min_percentile` (2nd percentile by default), preventing isolated
 low-value outliers from compressing the displayed color range.
