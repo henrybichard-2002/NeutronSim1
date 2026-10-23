@@ -6,7 +6,13 @@ import threading
 import time
 from pathlib import Path
 
-from .config import SimulationConfig
+if not __package__:
+    raise SystemExit(
+        "batch_report is a library module; run simulations with "
+        "'python -m iec_neutrons.cli run CONFIG' (batch reports are on by default)."
+    )
+
+from .config import SimulationConfig  # noqa: E402
 
 _POLL_SECONDS = 0.25
 _SETTLE_SECONDS = 0.3
@@ -116,7 +122,7 @@ def run_with_batch_reports(model, destination: Path, config: SimulationConfig) -
     next_batch = 1
     while next_batch <= batches:
         finished = not worker.is_alive()
-        path = destination / f"statepoint.{next_batch}.h5"
+        path = destination / f"statepoint.{next_batch:0{len(str(batches))}d}.h5"
         ready = path.is_file() and (
             finished or time.time() - path.stat().st_mtime > _SETTLE_SECONDS
         )
@@ -159,3 +165,4 @@ def run_with_batch_reports(model, destination: Path, config: SimulationConfig) -
     if "error" in outcome:
         raise outcome["error"]
     return Path(outcome["statepoint"])
+

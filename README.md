@@ -292,7 +292,7 @@ region-integrated spectrum plot uses the same layout. The profile's tally
 energy grid is 0.1 MeV bins from 0.1 to 20 MeV plus fine logarithmic bins
 below 10 keV to feed the inset.
 
-The `run` command prints a three-line report after every batch: batch runtime,
+Every run prints a three-line report after every batch (this is the default for `iec_neutrons.cli run` and `examples/run_custom_source.py`; there is nothing to enable, and `batch_report.py` is an internal module, not a script): batch runtime,
 throughput and elapsed time; leakage fraction and interactions per source
 neutron; and (n,2n)/(n,3n) multiplication, (n,gamma) captures and the mean
 source-region flux energy. It works by writing a small statepoint per batch,

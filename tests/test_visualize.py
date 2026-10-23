@@ -58,8 +58,8 @@ def test_spatial_heatmap_uses_world_extent_and_dotted_contours(
     )
 
     figure, axis = figures[0]
-    assert axis.get_xlim() == pytest.approx((-15.0, 15.0))
-    assert axis.get_ylim() == pytest.approx((-15.0, 15.0))
+    assert axis.get_xlim() == pytest.approx((-50.0, 50.0))
+    assert axis.get_ylim() == pytest.approx((-50.0, 50.0))
     assert axis.collections
     assert any("e" in label.get_text() for label in axis.texts)
     assert any("Detector" in label.get_text() for label in axis.texts)

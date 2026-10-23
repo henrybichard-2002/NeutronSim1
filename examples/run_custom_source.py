@@ -17,6 +17,7 @@ except ImportError as exc:
         "with the Python from the neutrons-openmc environment."
     ) from exc
 
+from iec_neutrons.batch_report import run_with_batch_reports
 from iec_neutrons.compiled_source import (
     collect_source_birth_spectrum,
     compile_custom_source,
@@ -96,7 +97,7 @@ def main() -> int:
         library=library,
         parameters=parameters,
     )
-    statepoint = model.run(cwd=str(output_dir))
+    statepoint = run_with_batch_reports(model, output_dir, config)
     if source_spectrum_base is not None:
         source_spectrum = collect_source_birth_spectrum(
             source_spectrum_base, output_dir / "source_birth_spectrum.csv"

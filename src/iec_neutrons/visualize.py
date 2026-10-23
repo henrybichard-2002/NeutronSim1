@@ -1230,8 +1230,19 @@ def _detector_overlay(axis, config: SimulationConfig, view: str, Rectangle) -> N
     )
 
 
-def _view_limits(view, style: PlotStyle, world_radius, world_half_height=None):
-    """Return (horizontal, vertical) axis limits in cm for a view."""
+def _view_limits(
+    view, style: PlotStyle, world_radius, world_half_height=None, restricted=False
+):
+    """Return (horizontal, vertical) axis limits in cm for a view.
+
+    Only ``restricted`` views (the geometry cross sections) use the configured
+    PlotStyle limits; every other plot shows the full world extent.
+    """
+    if not restricted:
+        half = world_half_height if world_half_height is not None else world_radius
+        return (-world_radius, world_radius), (
+            (-world_radius, world_radius) if view == "xy" else (-half, half)
+        )
     if view == "xy":
         horizontal, vertical = style.xy_xlim, style.xy_ylim
         default_vertical = (-world_radius, world_radius)
@@ -1251,10 +1262,13 @@ def _set_spatial_axes(
     style: PlotStyle,
     world_radius: float,
     world_half_height: float | None = None,
+    restricted: bool = False,
 ) -> None:
     axis.set_xscale(style.spatial_xscale)
     axis.set_yscale(style.spatial_yscale)
-    horizontal, vertical = _view_limits(view, style, world_radius, world_half_height)
+    horizontal, vertical = _view_limits(
+        view, style, world_radius, world_half_height, restricted
+    )
     axis.set_xlim(*horizontal)
     axis.set_ylim(*vertical)
     axis.set_aspect("equal", adjustable="box")
@@ -1325,6 +1339,31 @@ def _plot_spatial_map(
     return path
 
 
+ENERGY_MAP_FIGSIZE_IN = (33.87 / 2.54, 19.05 / 2.54)
+
+
+def _energy_map_grid(groups: int, config: SimulationConfig, view: str):
+    """Choose the (rows, columns) grid giving the largest panels on the figure."""
+    width, height = ENERGY_MAP_FIGSIZE_IN
+    radius = config.geometry.world_radius_cm
+    half = (
+        config.geometry.world_height_cm / 2
+        if view == "xz" and config.geometry.world_height_cm is not None
+        else radius
+    )
+    panel_aspect = radius / half
+    usable_width, usable_height = width - 1.2, height - 0.8
+    best, best_size = (1, groups), -1.0
+    for rows in range(1, groups + 1):
+        columns = -(-groups // rows)
+        panel_height = min(
+            usable_height / rows - 0.45, usable_width / columns / panel_aspect
+        )
+        if panel_height > best_size:
+            best, best_size = (rows, columns), panel_height
+    return best
+
+
 def _plot_energy_map(
     data,
     edges,
@@ -1345,11 +1384,11 @@ def _plot_energy_map(
 
     groups = data.shape[-1]
     positives = data[np.isfinite(data) & (data > 0)]
-    columns = (groups + 2) // 3
+    rows, columns = _energy_map_grid(groups, config, view)
     figure, axes = plt.subplots(
-        3,
+        rows,
         columns,
-        figsize=(14, 4.2 * columns),
+        figsize=ENERGY_MAP_FIGSIZE_IN,
         constrained_layout=True,
         squeeze=False,
     )
@@ -2055,7 +2094,9 @@ def _material_colors(config: SimulationConfig, style: PlotStyle):
     return {name: palette(index) for index, name in enumerate(names)}
 
 
-def _geometry_legend(config: SimulationConfig, Patch, colors):
+def _geometry_legend(
+    config: SimulationConfig, Patch, colors, boundaries: bool = True
+):
     entries = [
         Patch(
             facecolor="0.2",
@@ -2072,23 +2113,24 @@ def _geometry_legend(config: SimulationConfig, Patch, colors):
         )
         for material in colors
     )
-    entries.extend(
-        (
-            Patch(
-                facecolor="none",
-                edgecolor="magenta",
-                linestyle="--",
-                label="Configured detector volume",
-            ),
+    entries.append(
+        Patch(
+            facecolor="none",
+            edgecolor="magenta",
+            linestyle="--",
+            label="Configured detector volume",
+        )
+    )
+    if boundaries:
+        entries.append(
             Patch(
                 facecolor="none",
                 edgecolor="black",
                 linestyle=":",
                 label="Vacuum boundary",
-            ),
+            )
         )
-    )
-    if config.geometry.air_sphere_radius_cm is not None:
+    if boundaries and config.geometry.air_sphere_radius_cm is not None:
         entries.append(
             Patch(
                 facecolor="none",
@@ -2129,31 +2171,8 @@ def _plot_geometry(
             Circle((0, 0), config.source.radius_cm, facecolor="0.2", edgecolor="black")
         )
         _add_component_patches(axis, config, view, Circle, Rectangle, colors)
-        axis.add_patch(
-            Circle(
-                (0, 0),
-                world_radius,
-                fill=False,
-                edgecolor="black",
-                linewidth=1.0,
-                linestyle=":",
-                label="Vacuum boundary",
-            )
-        )
-        if config.geometry.air_sphere_radius_cm is not None:
-            axis.add_patch(
-                Circle(
-                    (0, 0),
-                    config.geometry.air_sphere_radius_cm,
-                    fill=False,
-                    edgecolor="cyan",
-                    linewidth=1.0,
-                    linestyle="--",
-                    label="Air-sphere boundary",
-                )
-            )
         _detector_overlay(axis, config, view, Rectangle)
-        _set_spatial_axes(axis, view, style, world_radius)
+        _set_spatial_axes(axis, view, style, world_radius, restricted=True)
         axis.set_xlabel("x (cm)")
         axis.set_ylabel("y (cm)")
         axis.set_aspect("equal")
@@ -2188,42 +2207,10 @@ def _plot_geometry(
             )
         )
         _add_component_patches(axis, config, view, Circle, Rectangle, colors)
-        if config.geometry.air_sphere_radius_cm is not None:
-            axis.add_patch(
-                Circle(
-                    (0, 0),
-                    config.geometry.air_sphere_radius_cm,
-                    fill=False,
-                    edgecolor="cyan",
-                    linewidth=1.0,
-                    linestyle="--",
-                    label="Air-sphere boundary",
-                )
-            )
-        axis.add_patch(
-            Rectangle(
-                (-world_radius, -vertical_world_extent),
-                2 * world_radius,
-                2 * vertical_world_extent,
-                fill=False,
-                edgecolor="black",
-                linewidth=1.0,
-                linestyle=":",
-                label="Vacuum boundary",
-            )
-            if config.geometry.world_height_cm is not None
-            else Circle(
-                (0, 0),
-                world_radius,
-                fill=False,
-                edgecolor="black",
-                linewidth=1.0,
-                linestyle=":",
-                label="Vacuum boundary",
-            )
-        )
         _detector_overlay(axis, config, view, Rectangle)
-        _set_spatial_axes(axis, view, style, world_radius, vertical_world_extent)
+        _set_spatial_axes(
+            axis, view, style, world_radius, vertical_world_extent, restricted=True
+        )
         axis.set_xlabel("x (cm)")
         axis.set_ylabel("z (cm)")
         axis.set_aspect("equal")
@@ -2231,7 +2218,7 @@ def _plot_geometry(
 
     axis.grid(True, alpha=0.2)
     axis.legend(
-        handles=_geometry_legend(config, Patch, colors),
+        handles=_geometry_legend(config, Patch, colors, boundaries=False),
         loc="upper left",
         bbox_to_anchor=(1.02, 1.0),
         borderaxespad=0,
