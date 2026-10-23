@@ -4,7 +4,7 @@
 # Weight fractions were converted to normalized element atom fractions for OpenMC add_element().
 
 settings:
-  particles: 10000
+  particles: 100000
   batches: 20
   inactive: 10
   seed: 12345
