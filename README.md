@@ -211,8 +211,8 @@ maps, relative-uncertainty maps, line profiles at the configured
 `visualization.marginal_*_cm` positions, region spectra, and the configured
 detector spectra. He-3 configurations additionally produce a combined
 flux/capture spectrum on a logarithmic y scale and a position-resolved capture
-heatmap. Spatial maps and geometry views use equal
-x/y/z scales and default windows of ±15 cm (XY), and ±30 cm by ±80 cm (XZ); total-flux heatmaps include dotted contours at every
+heatmap. Flux maps, energy-bin maps and marginals show the full world extent with equal
+x/y/z scales. Only `geometry_xy`/`geometry_xz` use the restricted windows of ±15 cm (XY) and ±30 cm by ±80 cm (XZ), and omit the air-sphere and world boundaries. `energy_bins_xy`/`energy_bins_xz` are laid out for a 33.87 × 19.05 cm figure. Total-flux heatmaps include dotted contours at every
 order of magnitude, labelled only where the text does not overlap reactor geometry. Geometry figures show configured materials and components. Line
 profiles use the nearest mesh-bin center to the requested coordinate.
 Geometry XY/XZ figures use one shared color per material, list each material

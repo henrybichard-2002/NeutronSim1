@@ -1185,7 +1185,9 @@ def _add_dotted_contours(axis, data, extent, np, obstacles=()) -> None:
             )
 
 
-def _detector_overlay(axis, config: SimulationConfig, view: str, Rectangle) -> None:
+def _detector_overlay(
+    axis, config: SimulationConfig, view: str, Rectangle, label: bool = True
+) -> None:
     if not config.detector.enabled:
         return
     detector = config.detector
@@ -1218,6 +1220,8 @@ def _detector_overlay(axis, config: SimulationConfig, view: str, Rectangle) -> N
         color="magenta",
         zorder=9,
     )
+    if not label:
+        return
     axis.annotate(
         f"Detector ({vertical_axis}={y:g} cm)",
         (x, y),
@@ -1352,12 +1356,13 @@ def _energy_map_grid(groups: int, config: SimulationConfig, view: str):
         else radius
     )
     panel_aspect = radius / half
-    usable_width, usable_height = width - 1.2, height - 0.8
+    usable_width, usable_height = width - 1.4, height - 0.6
     best, best_size = (1, groups), -1.0
     for rows in range(1, groups + 1):
         columns = -(-groups // rows)
         panel_height = min(
-            usable_height / rows - 0.45, usable_width / columns / panel_aspect
+            usable_height / rows - 0.9,
+            (usable_width / columns - 0.9) / panel_aspect,
         )
         if panel_height > best_size:
             best, best_size = (rows, columns), panel_height
@@ -1424,7 +1429,7 @@ def _plot_energy_map(
         )
         for outline in _geometry_outlines(config, view, Circle, Rectangle, axis):
             axis.add_patch(outline)
-        _detector_overlay(axis, config, view, Rectangle)
+        _detector_overlay(axis, config, view, Rectangle, label=False)
         _set_spatial_axes(
             axis,
             view,
