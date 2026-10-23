@@ -147,6 +147,7 @@ def run_custom_source_model(
         raise RuntimeError(
             "OpenMC is required to run a model with its compiled custom source"
         ) from exc
+    from .batch_report import run_with_batch_reports
     from .model import build_model
 
     destination = Path(output_dir).resolve()
@@ -158,7 +159,7 @@ def run_custom_source_model(
         library=library,
         parameters=custom_source_parameters(config, source_spectrum_base),
     )
-    statepoint = Path(model.run(cwd=str(destination)))
+    statepoint = run_with_batch_reports(model, destination, config)
     spectrum = collect_source_birth_spectrum(
         source_spectrum_base, destination / "source_birth_spectrum.csv"
     )

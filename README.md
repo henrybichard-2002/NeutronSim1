@@ -292,6 +292,12 @@ region-integrated spectrum plot uses the same layout. The profile's tally
 energy grid is 0.1 MeV bins from 0.1 to 20 MeV plus fine logarithmic bins
 below 10 keV to feed the inset.
 
+The `run` command prints a three-line report after every batch: batch runtime,
+throughput and elapsed time; leakage fraction and interactions per source
+neutron; and (n,2n)/(n,3n) multiplication, (n,gamma) captures and the mean
+source-region flux energy. It works by writing a small statepoint per batch,
+which is deleted once read (only the final one is kept).
+
 Run either configuration with its matching cross-section index; the standard
 run command automatically selects their configured compiled source:
 

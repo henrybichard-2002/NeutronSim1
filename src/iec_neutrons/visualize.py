@@ -1269,11 +1269,11 @@ def _plot_energy_map(
 
     groups = data.shape[-1]
     positives = data[np.isfinite(data) & (data > 0)]
-    rows = (groups + 2) // 3
+    columns = (groups + 2) // 3
     figure, axes = plt.subplots(
-        rows,
         3,
-        figsize=(14, 4.2 * rows),
+        columns,
+        figsize=(14, 4.2 * columns),
         constrained_layout=True,
         squeeze=False,
     )

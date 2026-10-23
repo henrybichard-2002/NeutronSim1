@@ -26,9 +26,20 @@ visualization:
   - 14.2
   - 15.0
   - 16.0
-  marginal_x_cm: 20.0
+  - 20.0
+  marginal_x_cm: 7.5
   marginal_y_cm: 0.0
   marginal_z_cm: 0.0
+
+
+detector:
+  enabled: true
+  x_cm: 1.1
+  y_cm: 0.0
+  z_cm: 0.0
+  width_x_cm: 0.4
+  width_y_cm: 0.4
+  thickness_z_cm: 0.05
 
 source:
   radius_cm: 4.15

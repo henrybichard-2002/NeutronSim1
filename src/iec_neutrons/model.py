@@ -572,5 +572,6 @@ def run_model(config: SimulationConfig, output_dir: str | Path) -> Path:
     """Run OpenMC and return the generated statepoint path."""
     destination = Path(output_dir).resolve()
     destination.mkdir(parents=True, exist_ok=True)
-    statepoint = build_model(config).run(cwd=str(destination))
-    return Path(statepoint)
+    from .batch_report import run_with_batch_reports
+
+    return run_with_batch_reports(build_model(config), destination, config)
