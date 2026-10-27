@@ -1681,14 +1681,18 @@ def _plot_survey_spectra(
             linestyle="--",
         )
         low = _inset_slice(source_edges, source_values, np)
-        if low is not None:
+        source_inset_has_data = low is not None and bool(np.any(np.asarray(low[1]) > 0))
+        if source_inset_has_data:
             source_inset.stairs(
                 low[1], low[0], linewidth=1.4, color="black", linestyle="--"
             )
         source_axis.set_yscale("log")
         source_axis.set_ylabel("Birth probability per neutron per MeV")
-        source_inset.set_yscale("log")
-        source_inset.tick_params(axis="y", labelsize=6)
+        if source_inset_has_data:
+            source_inset.set_yscale("log")
+            source_inset.tick_params(axis="y", labelsize=6)
+        else:
+            source_inset.set_yticks([])
     axis.set_xscale("linear")
     _set_spectrum_yscale(axis, main_values, "log", np)
     _limit_log_range(axis, main_values, np)
