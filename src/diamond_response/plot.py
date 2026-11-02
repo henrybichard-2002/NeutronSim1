@@ -8,14 +8,58 @@ import numpy as np
 
 from .response import ResponseMatrix
 
+THRESHOLDS_MEV = (0.0, 0.5, 1.0, 5.0, 7.5)
 
-def plot_matrix(rm: ResponseMatrix, outdir: Path, folded: ResponseMatrix | None = None) -> list[Path]:
+
+def _plt():
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    return plt
+
+
+def grid(ax) -> None:
+    ax.minorticks_on()
+    ax.grid(which="major", lw=0.8, alpha=0.6)
+    ax.grid(which="minor", lw=0.4, alpha=0.35, ls=":")
+
+
+def _save(fig, path: Path) -> Path:
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    _plt().close(fig)
+    return path
+
+
+def _label(threshold: float) -> str:
+    return "all pulses" if threshold <= 0 else f"pulses > {threshold:g} MeV"
+
+
+def efficiency_above(rm: ResponseMatrix, threshold: float):
+    """Efficiency (cm^2) and its statistical error for pulses above a pulse-height threshold."""
+    sel = rm.dep_centers > threshold if threshold > 0 else np.ones(len(rm.dep_centers), bool)
+    return rm.matrix[sel].sum(axis=0), np.sqrt((rm.error[sel] ** 2).sum(axis=0))
+
+
+def _log_inset(ax, x, ys, labels=None):
+    inset = ax.inset_axes([0.62, 0.38, 0.35, 0.55])
+    for y in ys:
+        inset.step(x, np.where(y > 0, y, np.nan), where="mid", lw=0.8)
+    inset.set_yscale("log")
+    top = max((np.nanmax(y) for y in ys if np.any(y > 0)), default=0.0)
+    if top > 0:
+        inset.set_ylim(top * 1e-7, top * 3)
+    inset.set_title("log scale", fontsize=8)
+    inset.tick_params(labelsize=7)
+    grid(inset)
+    return inset
+
+
+def plot_matrix(rm: ResponseMatrix, outdir: Path, folded: ResponseMatrix | None = None) -> list[Path]:
     from matplotlib.colors import LogNorm
 
+    plt = _plt()
     outdir.mkdir(parents=True, exist_ok=True)
     paths = []
     m = folded or rm
@@ -25,30 +69,19 @@ def plot_matrix(rm: ResponseMatrix, outdir: Path, folded: ResponseMatrix | None 
     fig.colorbar(mesh, label="pulses per unit fluence per bin [cm$^2$]")
     ax.set_xlabel("incident neutron energy [MeV]")
     ax.set_ylabel("deposited (collected) energy [MeV]")
-    paths.append(outdir / "response_matrix.png")
-    fig.savefig(paths[-1], dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    fig, ax = plt.subplots(figsize=(7, 4))
-    ax.plot(rm.inc_centers, rm.efficiency(0.5), label="> 0.5 MeV")
-    ax.plot(rm.inc_centers, rm.efficiency(0.0), label="all pulses")
-    ax.set_xlabel("incident neutron energy [MeV]")
-    ax.set_ylabel("efficiency [cm$^2$]")
-    ax.legend()
-    paths.append(outdir / "efficiency.png")
-    fig.savefig(paths[-1], dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    grid(ax)
+    paths.append(_save(fig, outdir / "response_matrix.png"))
 
     near = int(np.argmin(np.abs(rm.inc_centers - 14.05)))
-    fig, ax = plt.subplots(figsize=(8, 4))
+    fig, ax = plt.subplots(figsize=(8, 4.5))
     ax.step(m.dep_centers, m.matrix[:, near], where="mid")
-    ax.set_yscale("log")
     ax.set_xlabel("deposited energy [MeV]")
     ax.set_ylabel("pulses per fluence per bin [cm$^2$]")
     ax.set_title(f"Response column, incident {rm.inc_edges[near]:.2f}-{rm.inc_edges[near + 1]:.2f} MeV")
-    paths.append(outdir / "response_14MeV.png")
-    fig.savefig(paths[-1], dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    ax.set_ylim(bottom=0)
+    grid(ax)
+    _log_inset(ax, m.dep_centers, [m.matrix[:, near]])
+    paths.append(_save(fig, outdir / "response_14MeV.png"))
     return paths
 
 
@@ -85,31 +118,33 @@ def plot_response_lines(rm: ResponseMatrix, outdir: Path, probability=None, ener
 
     width = np.diff(rm.dep_edges)
     fig, ax = plt.subplots(figsize=(9, 5))
-    for label, col in _curves(rm, probability, energies):
+    curves = _curves(rm, probability, energies)
+    for label, col in curves:
         ax.step(rm.dep_centers, col / width, where="mid", label=label)
     ax.set_xlabel("deposited (collected) energy [MeV]")
     ax.set_ylabel("pulses per unit fluence per MeV [cm$^2$/MeV]")
     ax.set_yscale("linear")
     ax.set_ylim(bottom=0)
     ax.set_title("Diamond response" + title_suffix)
-    ax.legend()
+    grid(ax)
+    ax.legend(loc="upper left", fontsize=8)
+    _log_inset(ax, rm.dep_centers, [c / width for _, c in curves])
     path = outdir / name
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return path
 
 
-def plot_efficiency_lines(rm: ResponseMatrix, outdir: Path, probability=None, energies=LINE_ENERGIES_MEV) -> list[Path]:
-    """Efficiency (pulses per unit fluence, cm^2): vs energy with the line energies marked, and vs pulse-height threshold."""
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
+def plot_efficiency_lines(rm: ResponseMatrix, outdir: Path, probability=None, energies=LINE_ENERGIES_MEV,
+                          thresholds=THRESHOLDS_MEV) -> list[Path]:
+    """Efficiency (pulses per unit fluence, cm^2) vs energy with error bars for several thresholds, and vs threshold."""
+    plt = _plt()
     paths = []
-    fig, ax = plt.subplots(figsize=(9, 5))
-    ax.plot(rm.inc_centers, rm.efficiency(0.5), label="pulses > 0.5 MeV")
-    ax.plot(rm.inc_centers, rm.efficiency(0.0), label="all pulses")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for t in thresholds:
+        eff, err = efficiency_above(rm, t)
+        ax.errorbar(rm.inc_centers, eff, yerr=err, fmt="-", marker=".", ms=3, lw=1, elinewidth=0.7,
+                    capsize=1.5, label=_label(t))
     ax.set_yscale("linear")
     ax.set_ylim(bottom=0)
     for n, e in enumerate(energies):
@@ -117,44 +152,50 @@ def plot_efficiency_lines(rm: ResponseMatrix, outdir: Path, probability=None, en
         ax.annotate(f"{e:g}", (e, ax.get_ylim()[1]), ha="center", va="bottom", fontsize=8,
                     xytext=(0, 10 * (n % 2)), textcoords="offset points")
     ax.set_xlabel("incident neutron energy [MeV]")
-    ax.set_ylabel("efficiency [cm$^2$]")
+    ax.set_ylabel("efficiency [cm$^2$]  (error bars: 1 sigma, statistical)")
+    grid(ax)
     ax.legend()
-    paths.append(outdir / "efficiency_vs_energy.png")
-    fig.savefig(paths[-1], dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    paths.append(_save(fig, outdir / "efficiency_vs_energy.png"))
 
     fig, ax = plt.subplots(figsize=(9, 5))
     for label, col in _curves(rm, probability, energies):
-        above = np.cumsum(col[::-1])[::-1]
-        ax.step(rm.dep_edges[:-1], above, where="post", label=label)
+        ax.step(rm.dep_edges[:-1], np.cumsum(col[::-1])[::-1], where="post", label=label)
     ax.set_yscale("linear")
     ax.set_ylim(bottom=0)
     ax.set_xlabel("pulse-height threshold [MeV]")
     ax.set_ylabel("efficiency for pulses above threshold [cm$^2$]")
+    grid(ax)
     ax.legend()
-    paths.append(outdir / "efficiency_vs_threshold.png")
-    fig.savefig(paths[-1], dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    paths.append(_save(fig, outdir / "efficiency_vs_threshold.png"))
     return paths
 
 
 def plot_efficiency_heatmap(rm: ResponseMatrix, outdir: Path, name="efficiency_heatmap.png") -> Path:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    """Two panels: efficiency per MeV of pulse height (log colour, 4 decades) and efficiency of pulses
+    above a pulse-height threshold (linear colour). Dashed line: pulse height = incident energy."""
     from matplotlib.colors import LogNorm
 
-    data = np.where(rm.matrix > 0, rm.matrix / np.diff(rm.dep_edges)[:, None], np.nan)
-    fig, ax = plt.subplots(figsize=(9, 6))
-    mesh = ax.pcolormesh(rm.inc_edges, rm.dep_edges, data, norm=LogNorm(), shading="flat")
-    fig.colorbar(mesh, label="efficiency [cm$^2$ per MeV of pulse height]")
-    ax.set_xlabel("incident neutron energy [MeV]")
-    ax.set_ylabel("pulse height (deposited energy) [MeV]")
-    path = outdir / name
-    fig.savefig(path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    return path
+    plt = _plt()
+    width = np.diff(rm.dep_edges)[:, None]
+    density = rm.matrix / width
+    cumulative = np.cumsum(rm.matrix[::-1], axis=0)[::-1]
+    top = float(density.max()) if density.max() > 0 else 1.0
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
+    mesh = axes[0].pcolormesh(rm.inc_edges, rm.dep_edges, np.where(density > 0, density, np.nan),
+                              norm=LogNorm(vmin=top * 1e-4, vmax=top), shading="flat", cmap="viridis")
+    fig.colorbar(mesh, ax=axes[0], label="efficiency per MeV of pulse height [cm$^2$/MeV]")
+    axes[0].set_title("Differential: pulses per unit fluence per MeV")
+    mesh = axes[1].pcolormesh(rm.inc_edges, rm.dep_edges, cumulative, shading="flat", cmap="inferno")
+    fig.colorbar(mesh, ax=axes[1], label="efficiency for pulses above this pulse height [cm$^2$]")
+    axes[1].set_title("Integral: efficiency above pulse-height threshold")
+    for ax in axes:
+        ax.plot(rm.inc_edges, rm.inc_edges, "w--", lw=0.8)
+        ax.set_xlim(rm.inc_edges[0], rm.inc_edges[-1])
+        ax.set_ylim(rm.dep_edges[0], rm.dep_edges[-1])
+        ax.set_xlabel("incident neutron energy [MeV]")
+        grid(ax)
+    axes[0].set_ylabel("pulse height (deposited energy) [MeV]")
+    return _save(fig, outdir / name)
 
 
 def plot_all(rm: ResponseMatrix, outdir: Path, smeared: ResponseMatrix | None = None, probability=None) -> list[Path]:

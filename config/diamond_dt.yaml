@@ -17,7 +17,7 @@ source:
 incident:
   sampling: uniform          # uniform in each bin (bin-averaged) or "center"
   segments:
-    - {start_mev: 1.0,  stop_mev: 17.0, step_mev: 0.1}
+    - {start_mev: 1.0,  stop_mev: 17.0, step_mev: 1.0}
 
 deposited:
   max_mev: 16.0

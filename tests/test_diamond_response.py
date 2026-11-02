@@ -83,7 +83,7 @@ def test_openmc_column_has_n_alpha_peak(tmp_path):
     rm = assemble(cfg, tmp_path)
     col = rm.matrix[:, j]
     peak = rm.dep_centers[np.argmax(np.where(rm.dep_centers > 7.5, col, 0))]
-    assert 8.1 < peak < 8.4
+    assert 8.1 < peak < 8.9  # depends on the bin centre of the configured grid
 
 
 def test_reactor_config_and_fold(tmp_path):
