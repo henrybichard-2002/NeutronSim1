@@ -236,3 +236,61 @@ def plot_all(rm: ResponseMatrix, outdir: Path, smeared: ResponseMatrix | None = 
     paths += plot_efficiency_lines(rm, outdir, probability)
     paths.append(plot_efficiency_heatmap(rm, outdir))
     return paths
+
+
+def plot_reactor(rm: ResponseMatrix, dep_edges, rate, err, rate_res, err_res, fluence_rate: float,
+                 outdir: Path, thresholds=THRESHOLDS_MEV) -> list[Path]:
+    """Plots of the detector next to the reactor: its pulse-height spectrum, and efficiency vs energy / threshold."""
+    plt = _plt()
+    outdir.mkdir(parents=True, exist_ok=True)
+    width = np.diff(dep_edges)
+    centers = 0.5 * (dep_edges[1:] + dep_edges[:-1])
+    paths = []
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    for r, e, label in ((rate, err, "simulated (no resolution)"), (rate_res, err_res, "with assumed resolution")):
+        line, = ax.step(centers, r / width, where="mid", label=label, lw=1)
+        ax.fill_between(centers, (r - e) / width, (r + e) / width, step="mid", color=line.get_color(), alpha=0.3)
+    ax.set_xlabel("pulse height (deposited energy) [MeV]")
+    ax.set_ylabel("counts per second per MeV  (band: 1 sigma)")
+    ax.set_title("Diamond response to the neutrons incident from the reactor")
+    ax.set_ylim(bottom=0)
+    grid(ax)
+    ax.legend(loc="upper left", fontsize=8)
+    _log_inset(ax, centers, [rate / width, rate_res / width])
+    paths.append(_save(fig, outdir / "reactor_response.png"))
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for t in thresholds:
+        eff, e = efficiency_above(rm, t)
+        seen = np.where(rm.matrix.sum(axis=0) > 0, 1.0, np.nan)  # no reactor neutrons above ~15.5 MeV
+        ax.errorbar(rm.inc_centers, eff * seen, yerr=e * seen, fmt="-", marker=".", ms=3, lw=1, elinewidth=0.7,
+                    capsize=1.5, label=_label(t))
+    ax.set_ylim(bottom=0)
+    ax.set_xlabel("incident neutron energy [MeV]")
+    ax.set_ylabel("efficiency [cm$^2$]  (error bars: 1 sigma)")
+    ax.set_title("Efficiency vs incident energy (reactor angular distribution)")
+    grid(ax)
+    ax.legend()
+    paths.append(_save(fig, outdir / "reactor_efficiency_vs_energy.png"))
+
+    above = np.cumsum(rate[::-1])[::-1]
+    above_err = np.sqrt(np.cumsum((err**2)[::-1])[::-1])
+    eff = np.append(above, 0.0) / fluence_rate
+    eff_err = np.append(above_err, 0.0) / fluence_rate
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.step(dep_edges, eff, where="post", color="C0")
+    ax.fill_between(dep_edges, eff - eff_err, eff + eff_err, step="post", color="C0", alpha=0.3)
+    for t in thresholds:
+        y = float(np.interp(t, dep_edges, eff))
+        ax.axvline(t, color="grey", ls=":", lw=0.8)
+        ax.plot([t], [y], "o", color="C0", ms=4)
+        ax.annotate(f"{y:.3g}", (t, y), xytext=(8, 8), textcoords="offset points", fontsize=8, bbox=_BOX,
+                    arrowprops=_ARROW)
+    ax.set_ylim(bottom=0)
+    ax.set_xlabel("pulse-height threshold [MeV]")
+    ax.set_ylabel("efficiency for pulses above threshold [cm$^2$]\n(counts/s per unit fluence rate of 1-17 MeV neutrons)")
+    ax.set_title("Efficiency vs pulse-height threshold (reactor spectrum)")
+    grid(ax)
+    paths.append(_save(fig, outdir / "reactor_efficiency_vs_threshold.png"))
+    return paths

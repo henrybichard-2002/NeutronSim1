@@ -377,11 +377,13 @@ def source_birth_probability(config: SimulationConfig, outdir: Path, log=print) 
 
 
 def write_plots(config, field, matrices, probability, outdir: Path) -> list[Path]:
-    from .plot import plot_all
+    from .plot import plot_reactor
 
     try:
         rm = effective_matrix(field, matrices)
-        smeared = rm.with_resolution(config.resolution.noise_kev, config.resolution.relative)
-        return plot_all(rm, outdir / "plots", smeared, probability)
+        dep_edges, rate, err = fold_field(field, matrices)
+        g = resolution_kernel(dep_edges, config.resolution.noise_kev, config.resolution.relative)
+        return plot_reactor(rm, dep_edges, rate, err, g @ rate, np.sqrt((g**2) @ err**2),
+                            float(field.fluence_rate.sum()), outdir / "plots")
     except ImportError:
         return []

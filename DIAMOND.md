@@ -76,7 +76,7 @@ Outputs in the `--out` directory (all CSV with headers):
 | `detector_response_with_resolution.csv` | same, convolved with the `resolution:` settings |
 | `incident_neutron_spectrum.csv` | fluence rate at the detector per 0.1 MeV bin, uncertainty, angle-class fractions |
 | `source_birth_spectrum.csv` | emission spectrum of the custom D-T source on the incident grid |
-| `plots/` | `response_lines*.png` (2.45, 13.8, 14.1, 14.5 MeV and the unmoderated source, linear y), `efficiency_vs_energy.png`, `efficiency_vs_threshold.png`, `efficiency_heatmap.png` (efficiency vs incident energy vs pulse height) |
+| `plots/` | `reactor_response.png` (counts/s/MeV of the diamond at its reactor position, 1σ band, linear y + log inset), `reactor_efficiency_vs_energy.png` (thresholds all, 0.5, 1, 5, 7.5 MeV, error bars), `reactor_efficiency_vs_threshold.png` (counts/s per unit 1-17 MeV fluence rate vs threshold, labelled at the same thresholds) |
 | `npz/` | binary data: `reactor_field.npz`, per-class matrix columns, OpenMC run files (resumable) |
 | `summary.json` | totals, counts/s above `roi_min_mev`, source rate, flux-calibration error |
 
@@ -88,4 +88,4 @@ the coarse `angle_energy_edges_mev` grid and carry no uncertainty, the diamond i
 assumptions listed above (guessed (n,α) branching, no gammas, placeholder resolution) also apply. Increase
 `reactor.particles × batches` to reduce the spectrum noise; `matrix_target_rel_error` controls the matrix noise.
 
-Plot notes: `efficiency_vs_energy.png` and `efficiency_vs_threshold.png` carry vertical lines (the 2.45/13.8/14.1/14.5 MeV energies and the 0/0.5/1/5/7.5 MeV thresholds respectively) with the y value labelled where each line meets a curve; `response_custom_source.png` (linear y, log inset) replaces the single-column plot; all plots have major and minor gridlines; line responses are linear in y with a log-y inset; `efficiency_vs_energy.png` shows 1σ error bars for pulses above 0 (all), 0.5, 1, 5 and 7.5 MeV; `efficiency_heatmap.png` has two panels (differential, log colour over 4 decades; and integral efficiency above a pulse-height threshold). line responses interpolate linearly between neighbouring 0.1 MeV columns; "unmoderated source" is the custom-source birth spectrum (angle-averaged emission, sampled in a short source-only run) folded with the angle-averaged matrix. Matrix columns carrying little fluence use a relaxed `target_rel_error` (scaled by 1/√relative fluence, max 30%) and `max_chunks` caps the effort.
+Plot notes: all plots have major/minor gridlines. Efficiency vs energy uses the angle-averaged matrix of the reactor field and is blank above ~15.5 MeV, where the reactor delivers no neutrons. The generic (non-reactor) `run` command still writes the response-lines/heatmap plots.
