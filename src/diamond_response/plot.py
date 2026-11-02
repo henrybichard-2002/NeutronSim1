@@ -11,6 +11,10 @@ from .response import ResponseMatrix
 THRESHOLDS_MEV = (0.0, 0.5, 1.0, 5.0, 7.5)
 
 
+_BOX = dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.8)
+_ARROW = dict(arrowstyle="-", lw=0.4, color="grey")
+
+
 def _plt():
     import matplotlib
 
@@ -72,16 +76,6 @@ def plot_matrix(rm: ResponseMatrix, outdir: Path, folded: ResponseMatrix | None 
     grid(ax)
     paths.append(_save(fig, outdir / "response_matrix.png"))
 
-    near = int(np.argmin(np.abs(rm.inc_centers - 14.05)))
-    fig, ax = plt.subplots(figsize=(8, 4.5))
-    ax.step(m.dep_centers, m.matrix[:, near], where="mid")
-    ax.set_xlabel("deposited energy [MeV]")
-    ax.set_ylabel("pulses per fluence per bin [cm$^2$]")
-    ax.set_title(f"Response column, incident {rm.inc_edges[near]:.2f}-{rm.inc_edges[near + 1]:.2f} MeV")
-    ax.set_ylim(bottom=0)
-    grid(ax)
-    _log_inset(ax, m.dep_centers, [m.matrix[:, near]])
-    paths.append(_save(fig, outdir / "response_14MeV.png"))
     return paths
 
 
@@ -135,16 +129,38 @@ def plot_response_lines(rm: ResponseMatrix, outdir: Path, probability=None, ener
     return path
 
 
+def plot_source_response(rm: ResponseMatrix, outdir: Path, probability, name="response_custom_source.png") -> Path:
+    """Pulse-height response to the unmoderated custom D-T source: linear y with a log-y inset."""
+    plt = _plt()
+    width = np.diff(rm.dep_edges)
+    y = source_average(rm, probability) / width
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    ax.step(rm.dep_centers, y, where="mid")
+    ax.set_xlabel("deposited (collected) energy [MeV]")
+    ax.set_ylabel("pulses per unit fluence per MeV [cm$^2$/MeV]")
+    ax.set_title("Response to the unmoderated custom D-T source")
+    ax.set_ylim(bottom=0)
+    grid(ax)
+    _log_inset(ax, rm.dep_centers, [y])
+    return _save(fig, outdir / name)
+
+
 def plot_efficiency_lines(rm: ResponseMatrix, outdir: Path, probability=None, energies=LINE_ENERGIES_MEV,
                           thresholds=THRESHOLDS_MEV) -> list[Path]:
     """Efficiency (pulses per unit fluence, cm^2) vs energy with error bars for several thresholds, and vs threshold."""
     plt = _plt()
     paths = []
     fig, ax = plt.subplots(figsize=(10, 6))
-    for t in thresholds:
+    for k, t in enumerate(thresholds):
         eff, err = efficiency_above(rm, t)
-        ax.errorbar(rm.inc_centers, eff, yerr=err, fmt="-", marker=".", ms=3, lw=1, elinewidth=0.7,
-                    capsize=1.5, label=_label(t))
+        line = ax.errorbar(rm.inc_centers, eff, yerr=err, fmt="-", marker=".", ms=3, lw=1, elinewidth=0.7,
+                           capsize=1.5, label=_label(t))
+        color = line[0].get_color()
+        for e in energies:
+            y = float(np.interp(e, rm.inc_centers, eff))
+            ax.plot([e], [y], "o", color=color, ms=4)
+            ax.annotate(f"{y:.3g}", (e, y), xytext=(6, (2 - k) * 9), textcoords="offset points", fontsize=7,
+                        color=color, bbox=_BOX, arrowprops=_ARROW)
     ax.set_yscale("linear")
     ax.set_ylim(bottom=0)
     for n, e in enumerate(energies):
@@ -157,9 +173,19 @@ def plot_efficiency_lines(rm: ResponseMatrix, outdir: Path, probability=None, en
     ax.legend()
     paths.append(_save(fig, outdir / "efficiency_vs_energy.png"))
 
-    fig, ax = plt.subplots(figsize=(9, 5))
-    for label, col in _curves(rm, probability, energies):
-        ax.step(rm.dep_edges[:-1], np.cumsum(col[::-1])[::-1], where="post", label=label)
+    fig, ax = plt.subplots(figsize=(10, 6))
+    edges = rm.dep_edges
+    for k, (label, col) in enumerate(_curves(rm, probability, energies)):
+        cum = np.cumsum(col[::-1])[::-1]
+        line, = ax.step(edges[:-1], cum, where="post", label=label)
+        full = np.append(cum, 0.0)
+        for t in thresholds:
+            y = float(np.interp(t, edges, full))
+            ax.plot([t], [y], "o", color=line.get_color(), ms=4)
+            ax.annotate(f"{y:.3g}", (t, y), xytext=(8, (2 - k) * 9), textcoords="offset points", fontsize=7,
+                        color=line.get_color(), bbox=_BOX, arrowprops=_ARROW)
+    for t in thresholds:
+        ax.axvline(t, color="grey", ls=":", lw=0.8)
     ax.set_yscale("linear")
     ax.set_ylim(bottom=0)
     ax.set_xlabel("pulse-height threshold [MeV]")
@@ -205,6 +231,8 @@ def plot_all(rm: ResponseMatrix, outdir: Path, smeared: ResponseMatrix | None = 
     if smeared is not None:
         paths.append(plot_response_lines(smeared, outdir, probability, name="response_lines_with_resolution.png",
                                          title_suffix=" (with resolution)"))
+    if probability is not None:
+        paths.append(plot_source_response(rm, outdir, probability))
     paths += plot_efficiency_lines(rm, outdir, probability)
     paths.append(plot_efficiency_heatmap(rm, outdir))
     return paths
