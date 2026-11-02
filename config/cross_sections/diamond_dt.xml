@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<cross_sections>
+  <directory>/home/Romulus1/NeutronsInMatter</directory>
+  <library materials="C12" path="Npaths/JEFF40-Processed-OPENMC-HDF5/6-C-12g-293.6.h5" type="neutron"/>
+  <library materials="C13" path="Npaths/JEFF40-Processed-OPENMC-HDF5/6-C-13g-293.6.h5" type="neutron"/>
+  <library materials="N14" path="Npaths/JEFF40-Processed-OPENMC-HDF5/7-N-14g-293.6.h5" type="neutron"/>
+  <library materials="O16" path="Npaths/JEFF40-Processed-OPENMC-HDF5/8-O-16g-293.6.h5" type="neutron"/>
+  <library materials="Al27" path="Npaths/JEFF40-Processed-OPENMC-HDF5/13-Al-27g-293.6.h5" type="neutron"/>
+  <library materials="Si28" path="Npaths/JEFF40-Processed-OPENMC-HDF5/14-Si-28g-293.6.h5" type="neutron"/>
+  <library materials="Si29" path="Npaths/JEFF40-Processed-OPENMC-HDF5/14-Si-29g-293.6.h5" type="neutron"/>
+  <library materials="Si30" path="Npaths/JEFF40-Processed-OPENMC-HDF5/14-Si-30g-293.6.h5" type="neutron"/>
+</cross_sections>

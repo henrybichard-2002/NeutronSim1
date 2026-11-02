@@ -1,0 +1,56 @@
+# Detector response matrix of a 4 x 4 mm x 500 um sCVD diamond for D-T neutrons.
+detector:
+  width_mm: [4.0, 4.0]
+  thickness_um: 500.0
+  density_g_cm3: 3.515
+  # Non-collecting surface layers (metallisation / damage); set > 0 to study their effect.
+  dead_layer_front_um: 0.0
+  dead_layer_back_um: 0.0
+  dead_layer_lateral_um: 0.0
+  incidence_angle_deg: 0.0   # beam vs detector normal
+  support: null              # e.g. {elements: {Al: 2, O: 3}, density_g_cm3: 3.95, thickness_mm: 1.0}
+
+source:
+  beam_margin_mm: 3.0        # uniform beam extends this far beyond the diamond outline
+  distance_cm: 5.0
+
+incident:
+  sampling: uniform          # uniform in each bin (bin-averaged) or "center"
+  segments:
+    - {start_mev: 1.0,  stop_mev: 11.0, step_mev: 1.0}
+    - {start_mev: 11.0, stop_mev: 13.0, step_mev: 0.25}
+    - {start_mev: 13.0, stop_mev: 15.5, step_mev: 0.1}
+    - {start_mev: 15.5, stop_mev: 17.0, step_mev: 0.25}
+
+deposited:
+  max_mev: 16.0
+  bin_kev: 10.0
+
+statistics:
+  histories_per_chunk: 2.0e+7   # single OpenMC batch per chunk (limited by memory)
+  min_chunks: 4
+  max_chunks: 200
+  target_rel_error: 0.01     # on the number of pulses above roi_min_mev
+  roi_min_mev: 0.5
+
+physics:
+  cross_sections: null       # default: config/cross_sections/diamond_dt.xml
+  temperature_k: 294.0
+  energy_cutoff_ev: 1000.0
+  nuclear_stopping: true
+  pulse_window_ns: 10.0
+  # Branching of 12C(n,alpha)9Be* over 9Be levels (excitation MeV: weight). ASSUMPTION - JEFF-4.0
+  # holds only the summed (n,alpha) cross section. Replace with measured/evaluated branching.
+  alpha_levels:
+    0.0: 0.60
+    1.684: 0.12
+    2.429: 0.18
+    3.049: 0.05
+    4.704: 0.05
+
+# Applied only when post-processing / plotting (not part of the raw matrix).
+resolution:
+  noise_kev: 40.0
+  relative: 0.008
+
+seed: 1
