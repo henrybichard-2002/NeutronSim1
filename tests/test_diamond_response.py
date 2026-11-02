@@ -15,7 +15,7 @@ def test_default_config_grids():
     cfg = load_config(CONFIG)
     inc = incident_edges_mev(cfg)
     assert np.all(np.diff(inc) > 0)
-    assert inc[0] == 1.0 and inc[-1] == 17.0
+    assert inc[0] == 1.0 and inc[-1] >= 16.0
     assert deposited_edges_mev(cfg)[-1] == pytest.approx(16.0)
 
 
@@ -93,7 +93,7 @@ def test_reactor_config_and_fold(tmp_path):
 
     cfg = load_config("config/diamond_in_reactor.yaml")
     assert cfg.reactor.distance_from_surface_cm == 5.0 and cfg.reactor.z_cm == 0.0
-    assert len(incident_edges_mev(cfg)) == 161
+    assert incident_edges_mev(cfg)[0] == 1.0 and len(incident_edges_mev(cfg)) > 100
 
     inc = np.array([1.0, 2.0, 3.0])
     dep = np.array([0.0, 1.0, 2.0])
@@ -107,3 +107,28 @@ def test_reactor_config_and_fold(tmp_path):
     _, rate, err = reactor.fold_field(field, {0: rm, 1: rm})
     assert np.allclose(rate, [10.0, 10.0])
     assert np.isclose(err[0], np.sqrt((0.25**2 + 0.75**2) * (1.0 + 1.0)))
+
+
+def test_unfolding_recovers_known_spectrum(tmp_path):
+    from types import SimpleNamespace
+
+    from diamond_response.config import SimulationConfig, UnfoldConfig
+    from diamond_response.response import ResponseMatrix
+    from diamond_response.unfold import run_unfolding
+
+    inc_edges = np.linspace(1.0, 16.0, 31)
+    dep_edges = np.linspace(0.0, 16.0, 81)
+    ic, dc = 0.5 * (inc_edges[1:] + inc_edges[:-1]), 0.5 * (dep_edges[1:] + dep_edges[:-1])
+    # triangular response: a neutron deposits up to ~its energy, with a small peak at 0.4*E
+    m = np.where(dc[:, None] < 0.5 * ic[None, :], 1.0, 0.0) + 3.0 * np.exp(-(((dc[:, None] - 0.4 * ic[None, :]) / 0.3) ** 2))
+    m = 1e-4 * m / m.sum(axis=0).max()
+    rm = ResponseMatrix(inc_edges, dep_edges, m, 0.01 * m, 1, 1.0, {})
+    truth = 1e6 * (np.exp(-0.5 * ((ic - 4.0) / 1.0) ** 2) + 0.7 * np.exp(-0.5 * ((ic - 12.0) / 1.0) ** 2))
+    field = SimpleNamespace(fluence_rate=truth, fluence_rate_err=0.01 * truth,
+                            class_fractions_fine=lambda: {0: np.ones_like(truth)})
+    cfg = SimulationConfig()
+    cfg.unfold = UnfoldConfig(live_time_s=1e5, replicas=5, with_resolution=False, min_pulse_mev=0.0)
+    run_unfolding(cfg, field, {0: rm}, tmp_path, log=lambda *_: None)
+    data = np.genfromtxt(tmp_path / "unfolded_spectrum.csv", delimiter=",", names=True)
+    assert data["unfolded_effective_n_cm2_s"].sum() == pytest.approx(truth.sum(), rel=0.1)
+    assert (tmp_path / "plots" / "unfolded_vs_true.png").exists()

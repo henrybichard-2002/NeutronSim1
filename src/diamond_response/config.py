@@ -128,6 +128,19 @@ class ReactorConfig:
 
 
 @dataclass
+class UnfoldConfig:
+    """Unfolding of the pulse-height spectrum back to incident neutron energy (MLEM)."""
+
+    live_time_s: float = 3600.0        # counting time used to Poisson-sample the simulated spectrum
+    max_iterations: int = 5000
+    stop_chi2_ndf: float = 1.0         # stop at the first iteration where Pearson chi2/ndf <= this
+    replicas: int = 50                 # Poisson + response-matrix resamplings for the uncertainty
+    min_pulse_mev: float = 0.0         # ignore pulses below this pulse height
+    with_resolution: bool = True       # use the resolution-smeared matrix and spectrum
+    seed: int = 1
+
+
+@dataclass
 class SimulationConfig:
     detector: DetectorConfig = field(default_factory=DetectorConfig)
     source: SourceConfig = field(default_factory=SourceConfig)
@@ -137,6 +150,7 @@ class SimulationConfig:
     physics: PhysicsConfig = field(default_factory=PhysicsConfig)
     resolution: ResolutionConfig = field(default_factory=ResolutionConfig)
     reactor: ReactorConfig | None = None
+    unfold: UnfoldConfig = field(default_factory=UnfoldConfig)
     seed: int = 1
     base_dir: Path | None = field(default=None, repr=False)
 
@@ -151,6 +165,7 @@ _NESTED = {
     "resolution": ResolutionConfig,
     "support": SupportConfig,
     "reactor": ReactorConfig,
+    "unfold": UnfoldConfig,
 }
 
 
@@ -216,6 +231,8 @@ def validate(config: SimulationConfig) -> None:
         raise ConfigError("statistics.histories_per_chunk above 5e7 would exhaust memory; use more chunks")
     r = config.reactor
     if r is not None:
+        if not isinstance(r.angle_edges_deg, (list, tuple)):
+            raise ConfigError("reactor.angle_edges_deg must be a YAML list, e.g. [0, 10, 20, 30, 40, 50, 90]")
         edges = list(r.angle_edges_deg)
         if not r.config or r.particles < 1 or r.batches < 2 or min(r.ring_thickness_cm, r.ring_height_cm, r.angle_box_cm) <= 0:
             raise ConfigError("reactor: need config, particles >= 1, batches >= 2 and positive tally sizes")

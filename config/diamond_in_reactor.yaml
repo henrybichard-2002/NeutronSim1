@@ -17,7 +17,7 @@ source:
 incident:
   sampling: uniform          # uniform in each bin (bin-averaged) or "center"
   segments:
-    - {start_mev: 1.0,  stop_mev: 17.0, step_mev: 0.1}
+    - {start_mev: 1.0,  stop_mev: 16.0, step_mev: 0.1}
 
 deposited:
   max_mev: 16.0
@@ -47,7 +47,7 @@ physics:
 
 # Applied only when post-processing / plotting (not part of the raw matrix).
 resolution:
-  noise_kev: 40.0
+  noise_kev: 100.0
   relative: 0.008
 
 seed: 1
@@ -61,6 +61,14 @@ reactor:
   ring_thickness_cm: 0.5                    # axisymmetric ring tally used to gain statistics
   ring_height_cm: 2.0
   angle_box_cm: 3.0
-  angle_edges_deg: [0, 20, 40, 90]          # incidence-angle classes (vs detector normal)
+  angle_edges_deg: [0, 10, 20, 30, 40, 50, 90]   # incidence-angle classes (vs detector normal); angle tally has 5 deg bins, one matrix per class
   angle_energy_edges_mev: [1, 5, 10, 13, 13.8, 14.4, 15, 17]
   matrix_target_rel_error: 0.01
+
+# Unfolding of the simulated pulse-height spectrum back to incident neutron energy (MLEM, early stopping).
+unfold:
+  live_time_s: 3600.0   # counting time; sets the Poisson noise on the spectrum being unfolded
+  stop_chi2_ndf: 1.0
+  replicas: 50
+  min_pulse_mev: 0.5
+  with_resolution: true

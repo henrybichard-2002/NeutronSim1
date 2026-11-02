@@ -26,6 +26,10 @@ def _parser() -> argparse.ArgumentParser:
     x.add_argument("--out", type=Path, default=None)
     x.add_argument("--threads", type=int, default=None)
     x.add_argument("--rerun-field", action="store_true", help="redo the reactor transport even if saved")
+    u = sub.add_parser("unfold", help="unfold the reactor pulse-height spectrum and compare with the true spectrum")
+    u.add_argument("config", type=Path)
+    u.add_argument("--out", type=Path, required=True, help="existing reactor run directory")
+    u.add_argument("--threads", type=int, default=None)
     a = sub.add_parser("assemble", help="rebuild npz/response_matrix.npz, csv/plots from finished columns")
     a.add_argument("config", type=Path)
     a.add_argument("--out", type=Path, required=True)
@@ -74,6 +78,20 @@ def main(argv=None) -> int:
                 raise ConfigError("config has no 'reactor:' section")
             out = args.out or Path("runs") / args.config.stem
             for path in reactor.run_all(config, out, args.threads, args.rerun_field):
+                print("wrote", path)
+        elif args.command == "unfold":
+            from . import reactor
+            from .unfold import run_unfolding
+
+            config = load_config(args.config)
+            if config.reactor is None:
+                raise ConfigError("config has no 'reactor:' section")
+            field_path = reactor.npz_dir(args.out) / reactor.NEUTRON_FIELD_FILE
+            if not field_path.exists():
+                raise FileNotFoundError(f"no saved reactor field at {field_path}; run 'reactor' first")
+            field = reactor.ReactorField.load(field_path)
+            matrices = reactor.run_class_matrices(config, field, args.out, args.threads, print)
+            for path in run_unfolding(config, field, matrices, args.out):
                 print("wrote", path)
         elif args.command == "assemble":
             config = load_config(args.config)

@@ -1,0 +1,75 @@
+# Field-only config for comparison with measurements (see 'diamond-response compare'). Diamond detector in the IEC reactor field (gen_reactor_config_profile.yaml). Detector centre 4.25 cm outside the outer cowling, z = 0.
+detector:
+  width_mm: [4.0, 4.0]
+  thickness_um: 500.0
+  density_g_cm3: 3.515
+  # Non-collecting surface layers (metallisation / damage); set > 0 to study their effect.
+  dead_layer_front_um: 0.0
+  dead_layer_back_um: 0.0
+  dead_layer_lateral_um: 0.0
+  incidence_angle_deg: 0.0   # beam vs detector normal
+  support: null              # e.g. {elements: {Al: 2, O: 3}, density_g_cm3: 3.95, thickness_mm: 1.0}
+
+source:
+  beam_margin_mm: 3.0        # uniform beam extends this far beyond the diamond outline
+  distance_cm: 5.0
+
+incident:
+  sampling: uniform          # uniform in each bin (bin-averaged) or "center"
+  segments:
+    - {start_mev: 1.0,  stop_mev: 16.0, step_mev: 0.025}
+
+deposited:
+  max_mev: 16.0
+  bin_kev: 10.0
+
+statistics:
+  histories_per_chunk: 2.0e+7   # single OpenMC batch per chunk (limited by memory)
+  min_chunks: 4
+  max_chunks: 40 
+  target_rel_error: 0.02     # on the number of pulses above roi_min_mev
+  roi_min_mev: 0.5
+
+physics:
+  cross_sections: null       # default: config/cross_sections/diamond_dt.xml
+  temperature_k: 294.0
+  energy_cutoff_ev: 1000.0
+  nuclear_stopping: true
+  pulse_window_ns: 10.0
+  # Branching of 12C(n,alpha)9Be* over 9Be levels (excitation MeV: weight). ASSUMPTION - JEFF-4.0
+  # holds only the summed (n,alpha) cross section. Replace with measured/evaluated branching.
+  alpha_levels:
+    0.0: 0.60
+    1.684: 0.12
+    2.429: 0.18
+    3.049: 0.05
+    4.704: 0.05
+
+# Applied only when post-processing / plotting (not part of the raw matrix).
+resolution:
+  noise_kev: 100.0
+  relative: 0.008
+
+seed: 1
+
+reactor:
+  config: gen_reactor_config_profile.yaml   # relative to this file
+  distance_from_surface_cm: 4.25            # from the normalisation surface (outer cowling) to the diamond centre
+  z_cm: 0.0                                 # vertical middle of the cathode region
+  particles: 1.0e+5   # per batch; total histories = particles x batches
+  batches: 100
+  ring_thickness_cm: 0.5                    # axisymmetric ring tally used to gain statistics
+  ring_height_cm: 2.0
+  angle_box_cm: 3.0
+  angle_edges_deg: [0, 90]   # incidence-angle classes (vs detector normal); angle tally has 5 deg bins, one matrix per class
+  angle_energy_edges_mev: [1, 5, 10, 13, 13.8, 14.4, 15, 17]
+  matrix_target_rel_error: 0.01
+
+# Unfolding of the simulated pulse-height spectrum back to incident neutron energy (MLEM, early stopping).
+unfold:
+  live_time_s: 3600.0   # counting time; sets the Poisson noise on the spectrum being unfolded
+  max_iterations: 300
+  stop_chi2_ndf: 1.0
+  replicas: 50
+  min_pulse_mev: 0.5
+  with_resolution: true

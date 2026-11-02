@@ -35,6 +35,9 @@ class ReactorField:
     source_rate: float               # source neutrons per second matching the configured surface flux
     detector_x_cm: float
     detector_z_cm: float
+    fluence_below_grid: float = 0.0  # n/cm^2/s from 0 up to the lowest incident energy (not simulated)
+    fluence_above_grid: float = 0.0  # n/cm^2/s above the highest incident energy (not simulated)
+    angle_to_ring_ratio: float = 1.0  # angle-box flux / ring flux over the same energies (consistency check)
 
     def save(self, path: Path) -> None:
         np.savez(path, **{f.name: getattr(self, f.name) for f in dataclasses.fields(self)})
@@ -43,7 +46,16 @@ class ReactorField:
     def load(cls, path: Path) -> "ReactorField":
         data = np.load(path)
         return cls(**{f.name: (float(data[f.name]) if data[f.name].ndim == 0 else data[f.name])
-                      for f in dataclasses.fields(cls)})
+                      for f in dataclasses.fields(cls) if f.name in data.files})
+
+    def matches(self, config: SimulationConfig) -> bool:
+        """True if this saved field used the current energy grid and angle classes."""
+        edges = incident_edges_mev(config)
+        classes = np.asarray(config.reactor.angle_edges_deg, float)
+        coarse = np.asarray(config.reactor.angle_energy_edges_mev, float)
+        return (self.inc_edges.shape == edges.shape and np.allclose(self.inc_edges, edges)
+                and self.class_edges_deg.shape == classes.shape and np.allclose(self.class_edges_deg, classes)
+                and self.coarse_edges.shape == coarse.shape and np.allclose(self.coarse_edges, coarse))
 
     def class_fractions_fine(self) -> np.ndarray:
         """Angle-class fractions on the fine incident grid, ``[class, fine bin]``."""
@@ -130,7 +142,11 @@ def build_field_model(config: SimulationConfig, iec):
     angle.filters = [openmc.MeshFilter(angle_mesh), neutron, openmc.EnergyFilter(coarse * 1e6),
                      openmc.PolarFilter(ANGLE_BINS), openmc.AzimuthalFilter(ANGLE_BINS)]
     angle.scores = ["flux"]
-    model.tallies = openmc.Tallies([spectrum, norm, angle])
+    wide = openmc.Tally(name="diamond_fluence_wide")
+    wide.filters = [openmc.MeshFilter(spectrum_mesh), neutron,
+                    openmc.EnergyFilter([0.0, fine_ev[0], fine_ev[-1], 3.0e7])]
+    wide.scores = ["flux"]
+    model.tallies = openmc.Tallies([spectrum, norm, angle, wide])
     return model, {"spectrum_volume": spectrum_volume, "norm_volume": norm_volume, "box_volume": rc.angle_box_cm**3}
 
 
@@ -166,6 +182,7 @@ def extract_field(config: SimulationConfig, iec, statepoint: Path, volumes: dict
         spectrum = sp.get_tally(name="diamond_fluence_spectrum")
         norm = sp.get_tally(name="surface_flux_ring")
         angle = sp.get_tally(name="diamond_angle_distribution")
+        wide = sp.get_tally(name="diamond_fluence_wide").get_values(value="mean").reshape(-1)
         flux = spectrum.get_values(value="mean").reshape(-1)
         flux_err = spectrum.get_values(value="std_dev").reshape(-1)
         norm_mean = float(norm.get_values(value="mean").reshape(-1)[0])
@@ -176,6 +193,12 @@ def extract_field(config: SimulationConfig, iec, statepoint: Path, volumes: dict
         raise RuntimeError("no flux scored in the normalisation ring; increase reactor.particles")
     source_rate = iec.normalization.surface_flux_n_cm2_s / (norm_mean / volumes["norm_volume"])
     scale = source_rate / volumes["spectrum_volume"]
+    fine = incident_edges_mev(config)
+    inside = np.where(coarse[1:] <= fine[-1] + 1e-9)[0]
+    box_in = ang[inside].sum() / volumes["box_volume"] if len(inside) else 0.0
+    ring_cmp = sum(flux[(0.5 * (fine[1:] + fine[:-1]) > lo) & (0.5 * (fine[1:] + fine[:-1]) <= hi)].sum()
+                   for lo, hi in zip(coarse[inside], coarse[inside + 1])) / volumes["spectrum_volume"]
+    ratio = float(box_in / ring_cmp) if ring_cmp > 0 else 1.0
 
     theta = 0.5 * (np.linspace(0, math.pi, ANGLE_BINS + 1)[1:] + np.linspace(0, math.pi, ANGLE_BINS + 1)[:-1])
     phi = 0.5 * (np.linspace(-math.pi, math.pi, ANGLE_BINS + 1)[1:] + np.linspace(-math.pi, math.pi, ANGLE_BINS + 1)[:-1])
@@ -200,7 +223,9 @@ def extract_field(config: SimulationConfig, iec, statepoint: Path, volumes: dict
     return ReactorField(
         inc_edges=incident_edges_mev(config), fluence_rate=flux * scale, fluence_rate_err=flux_err * scale,
         coarse_edges=coarse, class_edges_deg=edges, class_fraction=fraction, class_mean_angle_deg=mean_angle,
-        norm_rel_error=norm_err / norm_mean, source_rate=source_rate, detector_x_cm=x, detector_z_cm=z)
+        norm_rel_error=norm_err / norm_mean, source_rate=source_rate, detector_x_cm=x, detector_z_cm=z,
+        fluence_below_grid=float(wide[0] * scale), fluence_above_grid=float(wide[2] * scale),
+        angle_to_ring_ratio=ratio)
 
 
 def run_class_matrices(config: SimulationConfig, field: ReactorField, outdir: Path, threads=None, log=print):
@@ -282,7 +307,13 @@ def write_outputs(config: SimulationConfig, field: ReactorField, matrices: dict[
     summary = {
         "detector_x_cm": field.detector_x_cm, "detector_z_cm": field.detector_z_cm,
         "source_rate_n_per_s": field.source_rate,
-        "fluence_rate_1_17MeV_n_cm2_s": float(field.fluence_rate.sum()),
+        "fluence_rate_simulated_range_n_cm2_s": float(field.fluence_rate.sum()),
+        "simulated_energy_range_MeV": [float(field.inc_edges[0]), float(field.inc_edges[-1])],
+        "fluence_rate_below_range_n_cm2_s": field.fluence_below_grid,
+        "fluence_rate_above_range_n_cm2_s": field.fluence_above_grid,
+        "fraction_of_fluence_not_simulated": (field.fluence_below_grid + field.fluence_above_grid)
+        / max(field.fluence_below_grid + field.fluence_above_grid + float(field.fluence_rate.sum()), 1e-300),
+        "angle_box_to_ring_flux_ratio": field.angle_to_ring_ratio,
         "counts_per_s_total": float(rate.sum()),
         "counts_per_s_above_roi_min": float(rate[roi].sum()),
         "uncertainty_counts_per_s_above_roi_min": float(np.sqrt((err[roi] ** 2).sum())),
@@ -305,10 +336,13 @@ def run_all(config: SimulationConfig, outdir: Path, threads=None, rerun_field=Fa
     if legacy.exists() and not field_path.exists():
         field_path.parent.mkdir(parents=True, exist_ok=True)
         legacy.rename(field_path)
-    if field_path.exists() and not rerun_field:
-        field = ReactorField.load(field_path)
+    saved = ReactorField.load(field_path) if field_path.exists() else None
+    if saved is not None and not rerun_field and saved.matches(config):
+        field = saved
         log(f"Using saved reactor field {field_path}")
     else:
+        if saved is not None and not rerun_field:
+            log("Saved reactor field does not match the configured energy grid / angle classes; re-running it")
         field = run_field(config, outdir, threads)
         field.save(field_path)
     log(f"Detector at x = {field.detector_x_cm:.2f} cm, z = {field.detector_z_cm:.2f} cm; "
@@ -317,6 +351,9 @@ def run_all(config: SimulationConfig, outdir: Path, threads=None, rerun_field=Fa
     matrices = run_class_matrices(config, field, outdir, threads, log)
     paths = write_outputs(config, field, matrices, outdir)
     paths += write_plots(config, field, matrices, probability, outdir)
+    from .unfold import run_unfolding
+
+    paths += run_unfolding(config, field, matrices, outdir, log=log)
     return paths
 
 

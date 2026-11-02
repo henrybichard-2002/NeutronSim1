@@ -89,3 +89,37 @@ assumptions listed above (guessed (n,α) branching, no gammas, placeholder resol
 `reactor.particles × batches` to reduce the spectrum noise; `matrix_target_rel_error` controls the matrix noise.
 
 Plot notes: all plots have major/minor gridlines. Efficiency vs energy uses the angle-averaged matrix of the reactor field and is blank above ~15.5 MeV, where the reactor delivers no neutrons. The generic (non-reactor) `run` command still writes the response-lines/heatmap plots.
+
+### Completeness checks (reactor mode)
+
+`summary.json` reports `fluence_rate_below_range` / `above_range` / `fraction_of_fluence_not_simulated`
+(neutrons outside the simulated incident-energy grid; a wide tally on the same ring) and
+`angle_box_to_ring_flux_ratio` (flux of the 3 cm angle box over the same energies divided by the ring flux; ~1 means the
+angular distribution and the spectrum describe the same neutrons). A saved `npz/reactor_field.npz` is reused only if its
+energy grid and angle classes match the config; otherwise the reactor stage is re-run. `reactor.angle_edges_deg` must be a
+YAML list (the angle tally has 5 degree bins; each class costs one response matrix).
+
+### Unfolding the pulse-height spectrum
+
+`diamond-response reactor ...` finishes by unfolding the simulated detector spectrum (with resolution) back to
+incident neutron energy and comparing it with the true reactor fluence. To redo only this step on an existing run:
+
+```bash
+diamond-response unfold config/diamond_in_reactor.yaml --out runs/diamond_in_reactor
+```
+
+Method (`unfold.py`): MLEM (non-negative Poisson maximum likelihood) on `counts = Poisson(live_time * M @ phi)`,
+stopped at the first iteration with Pearson chi2/ndf <= `unfold.stop_chi2_ndf` (early stopping is the regulariser).
+Uncertainties are the spread over `unfold.replicas` repetitions with Poisson-resampled counts and the matrix
+perturbed by its own MC error. They exclude unfolding bias.
+Two matrices are used: the angle-averaged one (incidence distribution known) and the nearest-to-normal class matrix
+(angles unknown). Outputs:
+
+- `unfolded_spectrum.csv`: true fluence rate, unfolded rate, uncertainties and unfolded/true per incident bin
+- `unfolding_summary.json`: iterations, chi2/ndf, totals and per-band (1-5, 5-10, 10-13, 13-14.4, 14.4-16 MeV) comparison
+- `plots/unfolded_vs_true.png` (with ratio panel), `plots/unfold_refold_check.png`
+
+Settings are in the `unfold:` section (`live_time_s` sets the statistics; `min_pulse_mev` discards low pulses).
+Caveats: the problem is ill-posed, so neighbouring bins are anti-correlated and fine structure cannot be resolved;
+the same matrix generates and unfolds the data (an "inverse crime"), so results are optimistic compared with real data
+where matrix errors (e.g. the assumed (n,alpha) branching) add bias; neutrons below 1 MeV are not in the matrix.
