@@ -26,7 +26,7 @@ def _parser() -> argparse.ArgumentParser:
     x.add_argument("--out", type=Path, default=None)
     x.add_argument("--threads", type=int, default=None)
     x.add_argument("--rerun-field", action="store_true", help="redo the reactor transport even if saved")
-    a = sub.add_parser("assemble", help="rebuild response_matrix.npz/csv/plots from finished columns")
+    a = sub.add_parser("assemble", help="rebuild npz/response_matrix.npz, csv/plots from finished columns")
     a.add_argument("config", type=Path)
     a.add_argument("--out", type=Path, required=True)
     f = sub.add_parser("fold", help="pulse-height spectrum for a Gaussian D-T source")
@@ -42,13 +42,16 @@ def _parser() -> argparse.ArgumentParser:
 def _finish(config, rm: ResponseMatrix, out: Path) -> None:
     from .plot import plot_matrix
 
-    rm.save(out / "response_matrix.npz")
+    (out / "npz").mkdir(parents=True, exist_ok=True)
+    rm.save(out / "npz" / "response_matrix.npz")
     rm.to_csv(out / "response_matrix.csv")
     res = config.resolution
     smeared = rm.with_resolution(res.noise_kev, res.relative)
     smeared.to_csv(out / "response_matrix_resolution.csv")
     try:
-        for path in plot_matrix(rm, out, smeared):
+        from .plot import plot_all
+
+        for path in plot_matrix(rm, out, smeared) + plot_all(rm, out, smeared):
             print("wrote", path)
     except ImportError:
         print("matplotlib not installed; skipping plots")

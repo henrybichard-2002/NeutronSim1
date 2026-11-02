@@ -26,7 +26,7 @@ deposited:
 statistics:
   histories_per_chunk: 2.0e+7   # single OpenMC batch per chunk (limited by memory)
   min_chunks: 4
-  max_chunks: 200
+  max_chunks: 40 
   target_rel_error: 0.02     # on the number of pulses above roi_min_mev
   roi_min_mev: 0.5
 

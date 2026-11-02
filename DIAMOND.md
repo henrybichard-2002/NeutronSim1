@@ -27,12 +27,12 @@ cd ~/NeutronSim
 pip install -e . --no-deps   # installs the diamond-response command; --no-deps keeps pip from fetching OpenMC
 
 diamond-response run config/diamond_dt.yaml --out runs/diamond_dt
-diamond-response fold runs/diamond_dt/response_matrix.npz --deuteron-mev 0.1 --angle-deg 90 --fwhm-mev 0.2
+diamond-response fold runs/diamond_dt/npz/response_matrix.npz --deuteron-mev 0.1 --angle-deg 90 --fwhm-mev 0.2
 ```
 Optional `run` arguments: `--threads N` and `--columns 20 21` (do not type brackets; the shell treats them as globs).
 Without installing: `PYTHONPATH=src python -m diamond_response.cli run ...`.
 Runs resume from the saved `column_XXXX.npz` files in the output directory.
-Outputs: `response_matrix.npz/.csv`, `response_matrix_resolution.csv` (Gaussian noise + relative smearing),
+Outputs: `npz/response_matrix.npz` (all binary `.npz` data, incl. per-column files, lives in `npz/`), `response_matrix.csv`, `response_matrix_resolution.csv` (Gaussian noise + relative smearing),
 plots. Requires `openmc`, `pycatima`, `numpy`, `scipy`, `h5py`, `PyYAML` (and `matplotlib` for plots).
 The full default run takes ~7.5 min on 32 cores.
 
@@ -75,6 +75,9 @@ Outputs in the `--out` directory (all CSV with headers):
 | `detector_response.csv` | counts/s per deposited bin (10 keV) with uncertainty, relative uncertainty, per-MeV values |
 | `detector_response_with_resolution.csv` | same, convolved with the `resolution:` settings |
 | `incident_neutron_spectrum.csv` | fluence rate at the detector per 0.1 MeV bin, uncertainty, angle-class fractions |
+| `source_birth_spectrum.csv` | emission spectrum of the custom D-T source on the incident grid |
+| `plots/` | `response_lines*.png` (2.45, 13.8, 14.1, 14.5 MeV and the unmoderated source, linear y), `efficiency_vs_energy.png`, `efficiency_vs_threshold.png`, `efficiency_heatmap.png` (efficiency vs incident energy vs pulse height) |
+| `npz/` | binary data: `reactor_field.npz`, per-class matrix columns, OpenMC run files (resumable) |
 | `summary.json` | totals, counts/s above `roi_min_mev`, source rate, flux-calibration error |
 
 Uncertainties are statistical only (reactor tally and response matrix, bins independent). The flux-calibration
@@ -84,3 +87,5 @@ Assumptions: the field is axisymmetric about z (ring averaging); angle classes a
 the coarse `angle_energy_edges_mev` grid and carry no uncertainty, the diamond is tilted about y); the matrix
 assumptions listed above (guessed (n,α) branching, no gammas, placeholder resolution) also apply. Increase
 `reactor.particles × batches` to reduce the spectrum noise; `matrix_target_rel_error` controls the matrix noise.
+
+Plot notes: line responses interpolate linearly between neighbouring 0.1 MeV columns; "unmoderated source" is the custom-source birth spectrum (angle-averaged emission, sampled in a short source-only run) folded with the angle-averaged matrix. Matrix columns carrying little fluence use a relaxed `target_rel_error` (scaled by 1/√relative fluence, max 30%) and `max_chunks` caps the effort.

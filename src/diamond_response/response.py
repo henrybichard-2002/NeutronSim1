@@ -143,15 +143,15 @@ class Simulator:
         return counts.astype(float), roi, stats, unhandled, histories
 
     def column_path(self, outdir: Path, column: int) -> Path:
-        return outdir / f"column_{column:04d}.npz"
+        return column_file(outdir, column)
 
-    def run_column(self, outdir: Path, column: int, log=print) -> ColumnAccumulator:
+    def run_column(self, outdir: Path, column: int, log=print, target_rel_error: float | None = None) -> ColumnAccumulator:
         cfg = self.config.statistics
+        target = cfg.target_rel_error if target_rel_error is None else target_rel_error
         path = self.column_path(outdir, column)
+        path.parent.mkdir(parents=True, exist_ok=True)
         acc = ColumnAccumulator.load(path) if path.exists() else ColumnAccumulator(len(self.dep_edges) - 1)
-        while acc.n_chunks < cfg.max_chunks and (
-            acc.n_chunks < cfg.min_chunks or acc.roi_rel_error > cfg.target_rel_error
-        ):
+        while acc.n_chunks < cfg.max_chunks and (acc.n_chunks < cfg.min_chunks or acc.roi_rel_error > target):
             counts, roi, stats, unhandled, histories = self.run_chunk(column, acc.n_chunks)
             acc.add(counts, roi, histories, stats, unhandled)
             acc.save(path)
@@ -165,6 +165,17 @@ class Simulator:
         for column in todo:
             self.run_column(outdir, column, log)
         return assemble(self.config, outdir)
+
+
+def npz_dir(outdir: Path) -> Path:
+    """Binary (.npz) data lives in ``<run>/npz`` so the run directory keeps only CSVs and plots."""
+    return Path(outdir) / "npz"
+
+
+def column_file(outdir: Path, column: int) -> Path:
+    name = f"column_{column:04d}.npz"
+    legacy = Path(outdir) / name
+    return legacy if legacy.exists() else npz_dir(outdir) / name
 
 
 @dataclass
@@ -235,7 +246,7 @@ def assemble(config: SimulationConfig, outdir: Path) -> ResponseMatrix:
     histories = np.zeros(len(inc) - 1)
     stats: dict = {}
     for j in range(len(inc) - 1):
-        path = outdir / f"column_{j:04d}.npz"
+        path = column_file(outdir, j)
         if not path.exists():
             continue
         acc = ColumnAccumulator.load(path)

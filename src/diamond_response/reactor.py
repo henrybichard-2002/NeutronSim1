@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 
 from .config import SimulationConfig, deposited_edges_mev, incident_edges_mev
-from .response import ResponseMatrix, Simulator, resolution_kernel
+from .response import ResponseMatrix, Simulator, assemble, npz_dir, resolution_kernel
 
 NEUTRON_FIELD_FILE = "reactor_field.npz"
 
@@ -141,13 +141,14 @@ def run_field(config: SimulationConfig, outdir: Path, threads: int | None = None
     import openmc
     from iec_neutrons.compiled_source import compile_custom_source, custom_source_parameters
 
-    outdir.mkdir(parents=True, exist_ok=True)
+    data = npz_dir(outdir)
+    data.mkdir(parents=True, exist_ok=True)
     iec = _load_iec(config)
     model, volumes = build_field_model(config, iec)
     model.materials.cross_sections = str(_cross_sections(config))
-    library = compile_custom_source(output_library=outdir / "libiec_custom_source.so")
+    library = compile_custom_source(output_library=data / "libiec_custom_source.so")
     model.settings.source = openmc.CompiledSource(library=library, parameters=custom_source_parameters(iec))
-    run_dir = outdir / "reactor_run"
+    run_dir = data / "reactor_run"
     run_dir.mkdir(exist_ok=True)
     for stale in run_dir.glob("statepoint.*.h5"):
         stale.unlink()
@@ -204,8 +205,6 @@ def extract_field(config: SimulationConfig, iec, statepoint: Path, volumes: dict
 
 def run_class_matrices(config: SimulationConfig, field: ReactorField, outdir: Path, threads=None, log=print):
     """Response matrix for every angle class that receives flux; returns {class index: ResponseMatrix}."""
-    from .response import assemble
-
     matrices = {}
     fractions = field.class_fractions_fine()
     flux_weight = fractions * field.fluence_rate[None, :]
@@ -215,10 +214,17 @@ def run_class_matrices(config: SimulationConfig, field: ReactorField, outdir: Pa
         detector = dataclasses.replace(config.detector, incidence_angle_deg=float(angle))
         stats = dataclasses.replace(config.statistics, target_rel_error=config.reactor.matrix_target_rel_error)
         cfg_k = dataclasses.replace(config, detector=detector, statistics=stats)
-        folder = outdir / f"matrix_class{k}_{field.class_edges_deg[k]:g}-{field.class_edges_deg[k + 1]:g}deg"
+        folder = npz_dir(outdir) / f"matrix_class{k}_{field.class_edges_deg[k]:g}-{field.class_edges_deg[k + 1]:g}deg"
         log(f"Angle class {k}: {field.class_edges_deg[k]:g}-{field.class_edges_deg[k + 1]:g} deg, "
             f"simulated at {angle:.1f} deg ({100 * flux_weight[k].sum() / flux_weight.sum():.1f}% of fluence)")
-        Simulator(cfg_k, threads=threads).run_all(folder, log=log)
+        sim = Simulator(cfg_k, threads=threads)
+        for j in range(len(field.fluence_rate)):
+            # columns carrying little fluence need less precision
+            weight = flux_weight[k, j] / max(flux_weight[k].max(), 1e-300)
+            if weight <= 0:
+                continue
+            target = min(0.3, stats.target_rel_error / math.sqrt(max(weight, 1e-4)))
+            sim.run_column(folder, j, log, target_rel_error=target)
         matrices[k] = assemble(cfg_k, folder)
     return matrices
 
@@ -294,7 +300,11 @@ def write_outputs(config: SimulationConfig, field: ReactorField, matrices: dict[
 
 def run_all(config: SimulationConfig, outdir: Path, threads=None, rerun_field=False, log=print) -> list[Path]:
     outdir.mkdir(parents=True, exist_ok=True)
-    field_path = outdir / NEUTRON_FIELD_FILE
+    field_path = npz_dir(outdir) / NEUTRON_FIELD_FILE
+    legacy = outdir / NEUTRON_FIELD_FILE
+    if legacy.exists() and not field_path.exists():
+        field_path.parent.mkdir(parents=True, exist_ok=True)
+        legacy.rename(field_path)
     if field_path.exists() and not rerun_field:
         field = ReactorField.load(field_path)
         log(f"Using saved reactor field {field_path}")
@@ -303,5 +313,75 @@ def run_all(config: SimulationConfig, outdir: Path, threads=None, rerun_field=Fa
         field.save(field_path)
     log(f"Detector at x = {field.detector_x_cm:.2f} cm, z = {field.detector_z_cm:.2f} cm; "
         f"angle classes {field.class_edges_deg.tolist()} deg, mean angles {np.round(field.class_mean_angle_deg, 1).tolist()}")
+    probability = source_birth_probability(config, outdir, log)
     matrices = run_class_matrices(config, field, outdir, threads, log)
-    return write_outputs(config, field, matrices, outdir)
+    paths = write_outputs(config, field, matrices, outdir)
+    paths += write_plots(config, field, matrices, probability, outdir)
+    return paths
+
+
+def effective_matrix(field: ReactorField, matrices: dict[int, ResponseMatrix]) -> ResponseMatrix:
+    """Angle-averaged response matrix of the reactor field (per unit fluence)."""
+    fractions = field.class_fractions_fine()
+    first = next(iter(matrices.values()))
+    matrix = np.zeros_like(first.matrix)
+    var = np.zeros_like(first.matrix)
+    for k, rm in matrices.items():
+        matrix += rm.matrix * fractions[k][None, :]
+        var += (rm.error * fractions[k][None, :]) ** 2
+    return ResponseMatrix(first.inc_edges, first.dep_edges, matrix, np.sqrt(var), first.histories, first.beam_area_cm2, {})
+
+
+def _birth_edges() -> np.ndarray:
+    return np.round(np.arange(0.0, 20.0 + 1e-9, 0.01), 6)
+
+
+def source_birth_probability(config: SimulationConfig, outdir: Path, log=print) -> np.ndarray:
+    """Emission spectrum of the custom source (probability per incident bin), via a short source-only transport run."""
+    import csv
+
+    import openmc
+    from iec_neutrons.compiled_source import collect_source_birth_spectrum, compile_custom_source, custom_source_parameters
+    from iec_neutrons.model import build_model
+
+    data = npz_dir(outdir)
+    saved = data / "source_birth_spectrum.csv"
+    if not saved.exists():
+        log("Sampling the custom-source birth spectrum")
+        iec = _load_iec(config)
+        iec = dataclasses.replace(
+            iec, tally=dataclasses.replace(iec.tally, energy_bins_mev=tuple(_birth_edges())),
+            settings=dataclasses.replace(iec.settings, particles=200_000, batches=1, inactive=0))
+        model = build_model(iec)
+        model.materials.cross_sections = str(_cross_sections(config))
+        base = data / "birth_tmp"
+        library = compile_custom_source(output_library=data / "libiec_custom_source.so")
+        model.settings.source = openmc.CompiledSource(library=library, parameters=custom_source_parameters(iec, base))
+        model.tallies = openmc.Tallies()
+        model.settings.particles = 200_000
+        run_dir = data / "birth_run"
+        run_dir.mkdir(exist_ok=True)
+        model.run(cwd=str(run_dir), output=False)
+        collect_source_birth_spectrum(base, saved)
+    with saved.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    lower = np.array([float(r["energy_lower_mev"]) for r in rows])
+    prob = np.array([float(r["probability_per_source_neutron"]) for r in rows])
+    centers = lower + 0.005
+    inc = incident_edges_mev(config)
+    binned, _ = np.histogram(centers, bins=inc, weights=prob)
+    fine = outdir / "source_birth_spectrum.csv"
+    np.savetxt(fine, np.column_stack([inc[:-1], inc[1:], binned]), delimiter=",", comments="",
+               header="energy_low_MeV,energy_high_MeV,probability_per_source_neutron", fmt="%.8g")
+    return binned
+
+
+def write_plots(config, field, matrices, probability, outdir: Path) -> list[Path]:
+    from .plot import plot_all
+
+    try:
+        rm = effective_matrix(field, matrices)
+        smeared = rm.with_resolution(config.resolution.noise_kev, config.resolution.relative)
+        return plot_all(rm, outdir / "plots", smeared, probability)
+    except ImportError:
+        return []
