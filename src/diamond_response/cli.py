@@ -30,6 +30,17 @@ def _parser() -> argparse.ArgumentParser:
     u.add_argument("config", type=Path)
     u.add_argument("--out", type=Path, required=True, help="existing reactor run directory")
     u.add_argument("--threads", type=int, default=None)
+    c = sub.add_parser("compare", help="compare measured pulse-height spectra with simulation, unfold both")
+    c.add_argument("config", type=Path, help="reactor config at the measurement position")
+    c.add_argument("--matrix", type=Path, required=True, help="response_matrix.npz used for the folding/unfolding")
+    c.add_argument("--data", type=str, nargs="+", required=True, help="folders with all_datasets.npz + metadata.json")
+    c.add_argument("--out", type=Path, required=True, help="run directory (holds/receives npz/reactor_field.npz)")
+    c.add_argument("--threads", type=int, default=None)
+    c.add_argument("--noise-kev", type=float, default=None, help="override resolution.noise_kev")
+    c.add_argument("--relative-resolution", type=float, default=None, help="override resolution.relative")
+    c.add_argument("--iterations", type=int, default=None, help="override unfold.max_iterations (fewer = smoother)")
+    c.add_argument("--min-pulse-mev", type=float, default=None, help="override unfold.min_pulse_mev")
+    c.add_argument("--replicas", type=int, default=None, help="override unfold.replicas")
     a = sub.add_parser("assemble", help="rebuild npz/response_matrix.npz, csv/plots from finished columns")
     a.add_argument("config", type=Path)
     a.add_argument("--out", type=Path, required=True)
@@ -92,6 +103,28 @@ def main(argv=None) -> int:
             field = reactor.ReactorField.load(field_path)
             matrices = reactor.run_class_matrices(config, field, args.out, args.threads, print)
             for path in run_unfolding(config, field, matrices, args.out):
+                print("wrote", path)
+        elif args.command == "compare":
+            from . import reactor
+            from .compare import load_measured, resolve_path, run_comparison
+
+            config = load_config(args.config)
+            if config.reactor is None:
+                raise ConfigError("config has no 'reactor:' section")
+            field_path = reactor.npz_dir(args.out) / reactor.NEUTRON_FIELD_FILE
+            if field_path.exists() and reactor.ReactorField.load(field_path).matches(config):
+                field = reactor.ReactorField.load(field_path)
+            else:
+                field = reactor.run_field(config, args.out, args.threads)
+                field.save(field_path)
+            for key, value in (("max_iterations", args.iterations), ("min_pulse_mev", args.min_pulse_mev),
+                               ("replicas", args.replicas)):
+                if value is not None:
+                    setattr(config.unfold, key, value)
+            matrix = ResponseMatrix.load(resolve_path(args.matrix))
+            measured = [load_measured(d, matrix.dep_edges) for d in args.data]
+            for path in run_comparison(config, field, matrix, measured, args.out, args.noise_kev,
+                                       args.relative_resolution):
                 print("wrote", path)
         elif args.command == "assemble":
             config = load_config(args.config)

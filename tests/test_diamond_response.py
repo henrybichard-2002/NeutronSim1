@@ -132,3 +132,18 @@ def test_unfolding_recovers_known_spectrum(tmp_path):
     data = np.genfromtxt(tmp_path / "unfolded_spectrum.csv", delimiter=",", names=True)
     assert data["unfolded_effective_n_cm2_s"].sum() == pytest.approx(truth.sum(), rel=0.1)
     assert (tmp_path / "plots" / "unfolded_vs_true.png").exists()
+
+
+def test_windows_path_and_measured_rebin(tmp_path):
+    from diamond_response.compare import load_measured, resolve_path
+
+    assert str(resolve_path(r"C:\Users\x\data")) == "/mnt/c/Users/x/data"
+    energy = np.linspace(0.0, 10.0, 1001)
+    counts = np.ones(1001, dtype=np.int32)
+    np.savez(tmp_path / "all_datasets.npz", **{"channel a_spectrum_energy [MeV]": energy,
+                                              "channel a_spectrum_counts": counts})
+    (tmp_path / "metadata.json").write_text('{"duration [s]": 10.0}')
+    edges = np.linspace(0.0, 16.0, 161)
+    m = load_measured(tmp_path, edges)
+    assert m.counts.sum() == 1000  # overflow bin dropped
+    assert m.live_time_s == 10.0

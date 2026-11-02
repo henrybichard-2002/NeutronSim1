@@ -123,3 +123,31 @@ Settings are in the `unfold:` section (`live_time_s` sets the statistics; `min_p
 Caveats: the problem is ill-posed, so neighbouring bins are anti-correlated and fine structure cannot be resolved;
 the same matrix generates and unfolds the data (an "inverse crime"), so results are optimistic compared with real data
 where matrix errors (e.g. the assumed (n,alpha) branching) add bias; neutrons below 1 MeV are not in the matrix.
+
+## Comparing with measured spectra
+
+```bash
+# 1) field at the measurement position (4.25 cm) is simulated on first use (slow), then reused
+diamond-response compare config/diamond_compare_4p25.yaml \
+  --matrix runs/diamond_dt/npz/response_matrix.npz \
+  --data "C:\Users\Romul\Analysis\DATA\15092026_90kV40mA_ChanAspectrum_1440" \
+  --out runs/diamond_compare_4p25            # optional: --iterations N --min-pulse-mev X --noise-kev K
+```
+
+`--data` takes folders containing `all_datasets.npz` + `metadata.json` (Windows paths are converted under WSL; several
+folders can be given). The matrix must have the same incident grid as the field (0.025 MeV, 1-16 MeV).
+Use `runs/diamond_dt/npz/response_matrix.npz`; the copy directly in `runs/diamond_dt/` can be older.
+
+Outputs in the run directory: `compare_deposited_spectra.csv`, `compare_unfolded_spectra.csv`, `compare_summary.json`
+(count rates, iterations, chi2/ndf), `plots/compare_deposited.png` (measured vs simulated, ratio panel, log inset) and
+`plots/compare_unfolded.png` (unfolded measured, unfolded simulated and the true simulated incident spectrum with ratio
+panel). All y-axes are relative flux: each curve has unit area over its comparison range (deposited: `unfold.min_pulse_mev`
+to the top of the measured range; incident: 1-16 MeV).
+
+Notes: simulated deposited = field x resolution-smeared normal-incidence matrix (angular distribution ignored; the
+default resolution noise 100 keV / 0.8 % is a placeholder, override with `--noise-kev`). The simulated spectrum is scaled to
+the measured counts before unfolding so both have the same statistics. The measured spectrum includes everything the
+simulation lacks (gammas, <1 MeV neutrons, electronics noise), so chi2/ndf of the measured unfolding will be >> 1 and
+the unfolded curve is noisy at 0.025 MeV binning; use `--iterations` and `--min-pulse-mev` to trade resolution for stability.
+`response_matrix.png` colour scale spans the 1st-99th percentile of bins (bins below 1e-12 of the maximum, i.e. Gaussian-tail
+underflow, are excluded first).

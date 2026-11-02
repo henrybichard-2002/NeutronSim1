@@ -69,6 +69,7 @@ reactor:
 unfold:
   live_time_s: 3600.0   # counting time; sets the Poisson noise on the spectrum being unfolded
   max_iterations: 300
+  max_iterations: 300
   stop_chi2_ndf: 1.0
   replicas: 50
   min_pulse_mev: 0.5

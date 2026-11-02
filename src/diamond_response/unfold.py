@@ -55,12 +55,21 @@ def mlem(matrix: np.ndarray, counts: np.ndarray, live_time_s: float, max_iterati
 
 
 def unfold(matrix: ResponseMatrix, rate: np.ndarray, cfg: UnfoldConfig, rng: np.random.Generator | None = None,
-           rate_err: np.ndarray | None = None) -> UnfoldResult:
-    """Unfold a pulse-height spectrum ``rate`` (counts/s per deposited bin of ``matrix``)."""
+           rate_err: np.ndarray | None = None, counts: np.ndarray | None = None,
+           max_pulse_mev: float = np.inf) -> UnfoldResult:
+    """Unfold a pulse-height spectrum ``rate`` (counts/s per deposited bin of ``matrix``).
+
+    If ``counts`` (measured counts over ``cfg.live_time_s``) is given it is used directly and ``rate`` is ignored.
+    Pulses outside [``cfg.min_pulse_mev``, ``max_pulse_mev``] are excluded from the fit.
+    """
     rng = rng or np.random.default_rng(cfg.seed)
-    use = matrix.dep_centers >= cfg.min_pulse_mev
+    use = (matrix.dep_centers >= cfg.min_pulse_mev) & (matrix.dep_centers <= max_pulse_mev)
     m = np.where(use[:, None], matrix.matrix, 0.0)
-    counts = rng.poisson(np.where(use, rate, 0.0) * cfg.live_time_s).astype(float)
+    if counts is not None:
+        rate = counts / cfg.live_time_s
+        counts = np.where(use, counts, 0.0)
+    else:
+        counts = rng.poisson(np.where(use, rate, 0.0) * cfg.live_time_s).astype(float)
     phi, iterations, chi2 = mlem(m, counts, cfg.live_time_s, cfg.max_iterations, cfg.stop_chi2_ndf)
     replicas = []
     for _ in range(max(cfg.replicas, 0)):

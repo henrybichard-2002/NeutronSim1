@@ -69,8 +69,11 @@ def plot_matrix(rm: ResponseMatrix, outdir: Path, folded: ResponseMatrix | None 
     m = folded or rm
     data = np.where(m.matrix > 0, m.matrix, np.nan)
     fig, ax = plt.subplots(figsize=(8, 6))
-    mesh = ax.pcolormesh(m.inc_edges, m.dep_edges, data, norm=LogNorm(), shading="flat")
-    fig.colorbar(mesh, label="pulses per unit fluence per bin [cm$^2$]")
+    positive = data[np.isfinite(data)]
+    positive = positive[positive > 1e-12 * positive.max()] if positive.size else positive  # drop Gaussian-tail underflow
+    vmin, vmax = np.percentile(positive, [1, 99]) if positive.size else (None, None)
+    mesh = ax.pcolormesh(m.inc_edges, m.dep_edges, data, norm=LogNorm(vmin=vmin, vmax=vmax), shading="flat")
+    fig.colorbar(mesh, extend="both", label="pulses per unit fluence per bin [cm$^2$] (colour scale: 1st-99th percentile of bins)")
     ax.set_xlabel("incident neutron energy [MeV]")
     ax.set_ylabel("deposited (collected) energy [MeV]")
     grid(ax)
