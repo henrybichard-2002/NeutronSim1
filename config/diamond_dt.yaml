@@ -17,10 +17,7 @@ source:
 incident:
   sampling: uniform          # uniform in each bin (bin-averaged) or "center"
   segments:
-    - {start_mev: 1.0,  stop_mev: 11.0, step_mev: 1.0}
-    - {start_mev: 11.0, stop_mev: 13.0, step_mev: 0.25}
-    - {start_mev: 13.0, stop_mev: 15.5, step_mev: 0.1}
-    - {start_mev: 15.5, stop_mev: 17.0, step_mev: 0.25}
+    - {start_mev: 1.0,  stop_mev: 17.0, step_mev: 0.1}
 
 deposited:
   max_mev: 16.0
@@ -30,7 +27,7 @@ statistics:
   histories_per_chunk: 2.0e+7   # single OpenMC batch per chunk (limited by memory)
   min_chunks: 4
   max_chunks: 200
-  target_rel_error: 0.01     # on the number of pulses above roi_min_mev
+  target_rel_error: 0.02     # on the number of pulses above roi_min_mev
   roi_min_mev: 0.5
 
 physics:

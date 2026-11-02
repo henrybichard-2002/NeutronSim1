@@ -20,10 +20,18 @@ for neutrons of 1-17 MeV, with the grid refined around 14 MeV.
 
 ## Usage
 ```
-export PYTHONPATH=src   # or pip install -e .
-diamond-response run config/diamond_dt.yaml --out runs/diamond_dt [--threads N] [--columns 20 21]
+deactivate 2>/dev/null   # leave any other venv (e.g. .venv) first, or pip/python resolve to it
+conda activate /home/Romulus1/miniforge3/envs/neutrons-openmc
+which python pip         # both must be under .../envs/neutrons-openmc/bin
+cd ~/NeutronSim
+pip install -e . --no-deps   # installs the diamond-response command; --no-deps keeps pip from fetching OpenMC
+
+diamond-response run config/diamond_dt.yaml --out runs/diamond_dt
 diamond-response fold runs/diamond_dt/response_matrix.npz --deuteron-mev 0.1 --angle-deg 90 --fwhm-mev 0.2
 ```
+Optional `run` arguments: `--threads N` and `--columns 20 21` (do not type brackets; the shell treats them as globs).
+Without installing: `PYTHONPATH=src python -m diamond_response.cli run ...`.
+Runs resume from the saved `column_XXXX.npz` files in the output directory.
 Outputs: `response_matrix.npz/.csv`, `response_matrix_resolution.csv` (Gaussian noise + relative smearing),
 plots. Requires `openmc`, `pycatima`, `numpy`, `scipy`, `h5py`, `PyYAML` (and `matplotlib` for plots).
 The full default run takes ~7.5 min on 32 cores.
@@ -40,3 +48,39 @@ The full default run takes ~7.5 min on 32 cores.
   emission are ignored. Escaping neutrons are not re-tracked; ions born in the support are not transported in.
 - No charge-collection inefficiency or quenching; resolution parameters (40 keV noise, 0.8 %) are placeholders.
 - Pulse window is measured from the first deposit of each history.
+
+## Diamond response inside the IEC reactor
+
+`config/diamond_in_reactor.yaml` simulates the pulse-height spectrum the diamond actually records in the
+`config/gen_reactor_config_profile.yaml` reactor (1-17 MeV, 0.1 MeV incident grid).
+
+```bash
+diamond-response reactor config/diamond_in_reactor.yaml --out runs/diamond_in_reactor   # [--threads N] [--rerun-field]
+```
+
+Geometry: the diamond centre is `distance_from_surface_cm` (5 cm) outside the normalisation surface
+(`outer_cowling`, r = 7 cm), i.e. at x = 12 cm, y = 0, z = 0 (middle of the cathode region); the face normal points
+at the reactor axis. The run is resumable (the field is saved in `reactor_field.npz`, matrix columns per class folder).
+
+Stages: (1) transport the reactor's custom D-T source and tally, on an axisymmetric ring through the detector
+position, the neutron fluence spectrum (n/cm²/s, normalised to the configured surface flux), plus the distribution of
+incidence angles in a small box; (2) simulate one response matrix per incidence-angle class
+(`angle_edges_deg`, simulated at the flux-weighted mean angle of each class); (3) fold:
+counts/s = Σ_class R_class · (φ · f_class).
+
+Outputs in the `--out` directory (all CSV with headers):
+
+| file | content |
+|---|---|
+| `detector_response.csv` | counts/s per deposited bin (10 keV) with uncertainty, relative uncertainty, per-MeV values |
+| `detector_response_with_resolution.csv` | same, convolved with the `resolution:` settings |
+| `incident_neutron_spectrum.csv` | fluence rate at the detector per 0.1 MeV bin, uncertainty, angle-class fractions |
+| `summary.json` | totals, counts/s above `roi_min_mev`, source rate, flux-calibration error |
+
+Uncertainties are statistical only (reactor tally and response matrix, bins independent). The flux-calibration
+error (common scale factor, in `summary.json`) is not included.
+
+Assumptions: the field is axisymmetric about z (ring averaging); angle classes are coarse (the angle fractions use
+the coarse `angle_energy_edges_mev` grid and carry no uncertainty, the diamond is tilted about y); the matrix
+assumptions listed above (guessed (n,α) branching, no gammas, placeholder resolution) also apply. Increase
+`reactor.particles × batches` to reduce the spectrum noise; `matrix_target_rel_error` controls the matrix noise.

@@ -84,3 +84,26 @@ def test_openmc_column_has_n_alpha_peak(tmp_path):
     col = rm.matrix[:, j]
     peak = rm.dep_centers[np.argmax(np.where(rm.dep_centers > 7.5, col, 0))]
     assert 8.1 < peak < 8.4
+
+
+def test_reactor_config_and_fold(tmp_path):
+    from diamond_response import reactor
+    from diamond_response.config import load_config
+    from diamond_response.response import ResponseMatrix
+
+    cfg = load_config("config/diamond_in_reactor.yaml")
+    assert cfg.reactor.distance_from_surface_cm == 5.0 and cfg.reactor.z_cm == 0.0
+    assert len(incident_edges_mev(cfg)) == 161
+
+    inc = np.array([1.0, 2.0, 3.0])
+    dep = np.array([0.0, 1.0, 2.0])
+    rm = ResponseMatrix(inc, dep, np.array([[1.0, 0.0], [0.0, 2.0]]), np.array([[0.1, 0.0], [0.0, 0.2]]),
+                        np.ones(2), 1.0, {})
+    field = reactor.ReactorField(
+        inc_edges=inc, fluence_rate=np.array([10.0, 5.0]), fluence_rate_err=np.array([1.0, 0.5]),
+        coarse_edges=np.array([1.0, 3.0]), class_edges_deg=np.array([0.0, 45.0, 90.0]),
+        class_fraction=np.array([[0.25], [0.75]]), class_mean_angle_deg=np.array([20.0, 60.0]),
+        norm_rel_error=0.0, source_rate=1.0, detector_x_cm=12.0, detector_z_cm=0.0)
+    _, rate, err = reactor.fold_field(field, {0: rm, 1: rm})
+    assert np.allclose(rate, [10.0, 10.0])
+    assert np.isclose(err[0], np.sqrt((0.25**2 + 0.75**2) * (1.0 + 1.0)))

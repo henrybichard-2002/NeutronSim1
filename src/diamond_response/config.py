@@ -110,6 +110,24 @@ class ResolutionConfig:
 
 
 @dataclass
+class ReactorConfig:
+    """Place the diamond next to an iec_neutrons reactor model and fold the response with its neutron field."""
+
+    config: str = ""                      # iec_neutrons YAML, relative to this file or the working directory
+    distance_from_surface_cm: float = 5.0  # radial distance from the normalisation surface to the diamond centre
+    z_cm: float = 0.0                     # axial position (0 = middle of the cathode)
+    particles: float = 1.0e6              # source histories per batch
+    batches: int = 100
+    ring_thickness_cm: float = 0.5        # radial thickness of the axisymmetric flux-averaging ring
+    ring_height_cm: float = 2.0
+    angle_box_cm: float = 3.0             # side of the box used to measure the incidence-angle distribution
+    angle_edges_deg: list = field(default_factory=lambda: [0.0, 20.0, 40.0, 90.0])
+    angle_energy_edges_mev: list = field(default_factory=lambda: [1.0, 5.0, 10.0, 13.0, 13.8, 14.4, 15.0, 17.0])
+    matrix_target_rel_error: float = 0.01
+    cross_sections: str | None = None  # default: config/cross_sections/<reactor yaml stem>.xml
+
+
+@dataclass
 class SimulationConfig:
     detector: DetectorConfig = field(default_factory=DetectorConfig)
     source: SourceConfig = field(default_factory=SourceConfig)
@@ -118,7 +136,9 @@ class SimulationConfig:
     statistics: StatisticsConfig = field(default_factory=StatisticsConfig)
     physics: PhysicsConfig = field(default_factory=PhysicsConfig)
     resolution: ResolutionConfig = field(default_factory=ResolutionConfig)
+    reactor: ReactorConfig | None = None
     seed: int = 1
+    base_dir: Path | None = field(default=None, repr=False)
 
 
 _NESTED = {
@@ -130,6 +150,7 @@ _NESTED = {
     "physics": PhysicsConfig,
     "resolution": ResolutionConfig,
     "support": SupportConfig,
+    "reactor": ReactorConfig,
 }
 
 
@@ -153,7 +174,7 @@ def _build(cls, data: Any, path: str):
             kwargs[name] = [_build(GridSegment, item, f"{where}[{i}]") for i, item in enumerate(value)]
         elif name == "alpha_levels":
             kwargs[name] = {float(k): float(v) for k, v in dict(value).items()}
-        elif name == "histories_per_chunk":
+        elif name in {"histories_per_chunk", "particles"}:
             try:
                 kwargs[name] = float(value)
             except (TypeError, ValueError) as exc:
@@ -193,6 +214,15 @@ def validate(config: SimulationConfig) -> None:
         raise ConfigError("statistics: need histories_per_chunk >= 1e4 and 2 <= min_chunks <= max_chunks")
     if s.histories_per_chunk > 5e7:
         raise ConfigError("statistics.histories_per_chunk above 5e7 would exhaust memory; use more chunks")
+    r = config.reactor
+    if r is not None:
+        edges = list(r.angle_edges_deg)
+        if not r.config or r.particles < 1 or r.batches < 2 or min(r.ring_thickness_cm, r.ring_height_cm, r.angle_box_cm) <= 0:
+            raise ConfigError("reactor: need config, particles >= 1, batches >= 2 and positive tally sizes")
+        if len(edges) < 2 or edges[0] != 0.0 or edges[-1] != 90.0 or any(b <= a for a, b in zip(edges, edges[1:])):
+            raise ConfigError("reactor.angle_edges_deg must increase from 0 to 90")
+        if len(r.angle_energy_edges_mev) < 2 or any(b <= a for a, b in zip(r.angle_energy_edges_mev, r.angle_energy_edges_mev[1:])):
+            raise ConfigError("reactor.angle_energy_edges_mev must be increasing")
     levels = config.physics.alpha_levels
     if not levels or min(levels.values()) < 0 or sum(levels.values()) <= 0:
         raise ConfigError("physics.alpha_levels needs non-negative weights with a positive sum")
@@ -219,5 +249,6 @@ def load_config(path: str | Path) -> SimulationConfig:
     with open(path, encoding="utf-8") as handle:
         data = yaml.safe_load(handle)
     config = _build(SimulationConfig, data, "config")
+    config.base_dir = Path(path).resolve().parent
     validate(config)
     return config

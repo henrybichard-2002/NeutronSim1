@@ -21,6 +21,11 @@ def _parser() -> argparse.ArgumentParser:
     r.add_argument("--out", type=Path, default=None, help="output directory (default runs/<config name>)")
     r.add_argument("--threads", type=int, default=None)
     r.add_argument("--columns", type=int, nargs="*", default=None, help="only these incident-energy columns")
+    x = sub.add_parser("reactor", help="diamond response in the IEC reactor field (CSV with uncertainties)")
+    x.add_argument("config", type=Path)
+    x.add_argument("--out", type=Path, default=None)
+    x.add_argument("--threads", type=int, default=None)
+    x.add_argument("--rerun-field", action="store_true", help="redo the reactor transport even if saved")
     a = sub.add_parser("assemble", help="rebuild response_matrix.npz/csv/plots from finished columns")
     a.add_argument("config", type=Path)
     a.add_argument("--out", type=Path, required=True)
@@ -58,6 +63,15 @@ def main(argv=None) -> int:
             sim = Simulator(config, threads=args.threads)
             rm = sim.run_all(out, columns=args.columns)
             _finish(config, rm, out)
+        elif args.command == "reactor":
+            from . import reactor
+
+            config = load_config(args.config)
+            if config.reactor is None:
+                raise ConfigError("config has no 'reactor:' section")
+            out = args.out or Path("runs") / args.config.stem
+            for path in reactor.run_all(config, out, args.threads, args.rerun_field):
+                print("wrote", path)
         elif args.command == "assemble":
             config = load_config(args.config)
             _finish(config, assemble(config, args.out), args.out)
