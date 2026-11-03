@@ -99,17 +99,258 @@ def write_efficiency_csv(path: Path, inc_centers, thresholds, eff) -> None:
             w.writerow([f"{e:.6f}"] + [f"{eff[k][j]:.6e}" for k in range(len(thresholds))])
 
 
+def load_fields(args, inc_edges: np.ndarray):
+    """[(distance_cm, surface_flux, record)] for every saved field on the matrix incident grid."""
+    paths = [resolve_path(args.field)] if args.field else sorted(Path(args.field_dir).glob("*/npz/reactor_field.npz"))
+    found = []
+    for path in paths:
+        z = np.load(path)
+        if z["inc_edges"].shape != inc_edges.shape or not np.allclose(z["inc_edges"], inc_edges):
+            continue
+        surface = float(z["surface_flux_n_cm2_s"]) if "surface_flux_n_cm2_s" in z.files else args.surface_flux
+        rec = {"path": str(path), "rate": np.asarray(z["fluence_rate"], float), "err": np.asarray(z["fluence_rate_err"], float),
+               "extra": float(z["fluence_below_grid"]) + float(z["fluence_above_grid"]), "surface": surface}
+        found.append((float(z["detector_x_cm"]) - args.surface_radius_cm, rec))
+    return sorted(found, key=lambda item: item[0])
+
+
+def field_at(args, distance, inc_edges):
+    found = load_fields(args, inc_edges)
+    if not found:
+        raise SystemExit("no reactor_field.npz on the response-matrix incident grid found; use --field/--field-dir "
+                         "or --surface-scale")
+    if distance is None:
+        if len(found) > 1 and not args.field:
+            raise SystemExit("several fields found; give --distance-cm")
+        distance = found[0][0]
+    dists = np.array([d for d, _ in found])
+    if len(found) == 1 or np.min(np.abs(dists - distance)) < 5e-3:
+        d, rec = found[int(np.argmin(np.abs(dists - distance)))]
+        if abs(d - distance) > 5e-3:
+            raise SystemExit(f"only a field at {d:.2f} cm exists; cannot use it for {distance:.2f} cm "
+                             "(run 'diamond-response compare' for that distance)")
+        mix = [(1.0, rec)]
+        description = f"{rec['path']} (simulated at {d:.2f} cm)"
+    else:
+        if not dists.min() <= distance <= dists.max():
+            raise SystemExit(f"{distance:.2f} cm is outside the simulated range "
+                             f"{dists.min():.2f}-{dists.max():.2f} cm; simulate that distance first")
+        hi = int(np.searchsorted(dists, distance))
+        (d0, r0), (d1, r1) = found[hi - 1], found[hi]
+        w = (distance - d0) / (d1 - d0)
+        mix = [(1 - w, r0), (w, r1)]
+        description = (f"interpolated linearly between {d0:.2f} cm ({r0['path']}) and {d1:.2f} cm ({r1['path']}); "
+                       "exact only if you simulate this distance")
+        print("WARNING: no field simulated at this distance - interpolating")
+    rate = sum(w * r["rate"] for w, r in mix)
+    err = np.sqrt(sum((w * r["err"]) ** 2 for w, r in mix))
+    total = rate.sum() + sum(w * r["extra"] for w, r in mix)
+    surface = sum(w * r["surface"] for w, r in mix)
+    return {"rate": rate, "err": err, "k": surface / total, "distance": distance, "description": description}
+
+
 def grid(ax) -> None:
     ax.minorticks_on()
     ax.grid(which="major", alpha=0.6, linewidth=0.8)
     ax.grid(which="minor", alpha=0.25, linewidth=0.4)
 
 
+def diagnostics(v: dict) -> None:
+    """Plots that check each step of the chain; ``v`` is the namespace of main()."""
+    import matplotlib.pyplot as plt
+
+    out = Path(v["out"]) / "plots" / "diagnostics"
+    out.mkdir(parents=True, exist_ok=True)
+    args, mv, k, field = v["args"], v["mv"], v["k"], v["field"]
+    dep_c, dep_edges, inc_c, inc_w = v["dep_c"], v["dep_edges"], v["inc_c"], v["inc_w"]
+    counts, fit, duration, phi0, matrix = v["counts"], v["fit"], v["duration"], v["phi0"], v["matrix"]
+    eff, e_max, win_series, win_thr = v["eff"], v["e_max"], v["win_series"], v["win_thr"]
+    reachable, flux_t, flux_t_err, t_mid = v["reachable"], v["flux_t"], v["flux_t_err"], v["t_mid"]
+    dep_w = np.diff(dep_edges)
+    hi_s = win_series[1] if np.isfinite(win_series[1]) else e_max
+    label = f"{win_series[0]:.2f}-{hi_s:.2f} MeV"
+    saved = []
+
+    def save(fig, name):
+        fig.tight_layout()
+        fig.savefig(out / name, dpi=140)
+        plt.close(fig)
+        saved.append(name)
+
+    # 1. raw ADC spectrum with trigger / ROI / fit limits
+    amp, c_adc = v["amp_mv"][:-1], v["counts_adc"]
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.step(amp, c_adc, where="mid", lw=0.7)
+    ax.set_yscale("log")
+    for x, text, col in ((v["meta"]["channel a_trigger [mV]"], "trigger", "r"),
+                         (v["meta"]["channel a_roi [mV]"][0], "ROI low", "g"),
+                         (v["meta"]["channel a_roi [mV]"][1], "ROI high", "g"),
+                         (args.min_pulse_mev * mv, "fit lower limit", "m")):
+        ax.axvline(x, color=col, ls="--", lw=1, label=f"{text} ({x:.0f} mV = {x / mv:.2f} MeV)")
+    ax.set(xlabel="pulse amplitude [mV]", ylabel="counts per ADC bin",
+           title=f"Raw acquisition spectrum ({int(c_adc.sum()):,} counts; last/overflow bin removed)")
+    sec = ax.secondary_xaxis("top", functions=(lambda x: x / mv, lambda x: x * mv))
+    sec.set_xlabel(f"pulse height [MeV] at {mv:g} mV/MeV")
+    ax.legend(); grid(ax)
+    save(fig, "d1_raw_adc_spectrum.png")
+
+    # 2. refold check: does the unfolded spectrum reproduce the measurement?
+    model = matrix @ phi0 * duration
+    mask = fit & (model > 0)
+    pull = np.where(mask, (counts - model) / np.sqrt(np.maximum(model, 1.0)), np.nan)
+    chi2 = float(np.nansum(pull ** 2) / max(mask.sum(), 1))
+    fig, (a, b) = plt.subplots(2, 1, figsize=(10, 7), sharex=True, gridspec_kw={"height_ratios": [3, 1]})
+    a.step(dep_c[fit], counts[fit] / duration / dep_w[fit], where="mid", label="measured", color="C0")
+    a.step(dep_c[fit], model[fit] / duration / dep_w[fit], where="mid", label="refolded unfolded spectrum", color="C3")
+    a.set(ylabel="counts/s/MeV", yscale="log", title=f"Refold check: chi2/ndf = {chi2:.1f} (bins above {args.min_pulse_mev:g} MeV)")
+    a.legend(); grid(a)
+    b.plot(dep_c[fit], pull[fit], ".", ms=3)
+    b.axhline(0, color="k", lw=1)
+    b.set(xlabel="deposited energy [MeV]", ylabel="(data - model)/sigma", ylim=(-10, 10)); grid(b)
+    save(fig, "d2_refold_check.png")
+
+    # 3. efficiency of the windows and which incident energies dominate the rate
+    shapes = {"unfolded spectrum": phi0 / phi0.sum()}
+    if field is not None:
+        sim = np.where(reachable, field["rate"], 0.0)
+        shapes["simulated field"] = sim / sim.sum()
+    fig, (a, b) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    for lo, hi, text, col in ((win_series[0], win_series[1], f"series window {label}", "C0"),
+                              (win_thr[0], win_thr[1], f"threshold window > {win_thr[0]:.2f} MeV", "C1"),
+                              (args.min_pulse_mev, np.inf, f"all > {args.min_pulse_mev:g} MeV", "C2")):
+        a.plot(inc_c, eff.window(lo, hi), color=col, label=text)
+    a.set(ylabel="efficiency [cm$^2$]", title="Window efficiency vs incident energy"); a.legend(); grid(a)
+    e_ser = eff.window(*win_series)
+    for (name, w), col in zip(shapes.items(), ("C3", "k")):
+        contrib = np.cumsum(w * e_ser) / (w @ e_ser)
+        b.plot(inc_c, contrib, color=col, label=f"{name} (effective efficiency {w @ e_ser:.3g} cm$^2$)")
+    b.set(xlabel="incident neutron energy [MeV]", ylabel="cumulative fraction of window pulses",
+          title="Which incident energies produce the pulses in the series window"); b.legend(); grid(b)
+    save(fig, "d3_efficiency_and_contribution.png")
+
+    # 4. flux vs PH threshold (flat if the spectrum shape and efficiency are right)
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    ths = np.arange(args.min_pulse_mev, min(e_max - 0.5, 9.5) + 1e-9, 0.25)
+    for (name, w), col in zip(shapes.items(), ("C3", "k")):
+        f, fe = [], []
+        for t in ths:
+            n = counts[(dep_c >= t) & (dep_c < e_max)].sum()
+            e = float(w @ eff.window(t, e_max))
+            f.append(n / duration / e * k if e > 0 else np.nan)
+            fe.append(np.sqrt(max(n, 1.0)) / duration / e * k if e > 0 else np.nan)
+        ax.errorbar(ths, f, yerr=fe, fmt=".-", lw=0.8, ms=4, color=col, label=f"efficiency weighted with {name}")
+    ax.axvline(win_thr[0], color="C1", ls="--", label=f"chosen threshold {win_thr[0]:.2f} MeV")
+    ax.axvline(win_series[0], color="C0", ls=":", label=f"series window start {win_series[0]:.2f} MeV")
+    ax.set(xlabel="pulse-height threshold [MeV]", ylabel="flux at reactor surface [n/cm$^2$/s]",
+           title="Consistency: flux from pulses above each threshold (should be flat)")
+    ymax = max((np.nanmedian(ln.get_ydata()) for ln in ax.get_lines() if len(ln.get_xdata()) > 2), default=1.0)
+    ax.set_ylim(0, 2.5 * ymax)
+    ax.legend(); grid(ax)
+    save(fig, "d4_flux_vs_threshold.png")
+
+    # 5. sensitivity of the series flux to the analysis choices
+    raw_energy = v["raw_energy"]
+    z_matrix, z_error = v["z_matrix"], v["z_error"]
+    roi_mv = v["meta"]["channel a_roi [mV]"]
+    trig_mv = v["meta"]["channel a_trigger [mV]"]
+
+    def estimate(mv_, noise_, iters_):
+        e = raw_energy[:-1] * args.assumed_mv_per_mev / mv_
+        idx = np.searchsorted(dep_edges, e, side="right") - 1
+        ok = (idx >= 0) & (idx < len(dep_edges) - 1)
+        c = np.bincount(idx[ok], weights=v["counts_adc"][ok], minlength=len(dep_edges) - 1)
+        g = smearing_kernel(dep_edges, noise_, args.relative_resolution)
+        m = g @ z_matrix
+        f_ = (dep_c >= args.min_pulse_mev) & (dep_c <= e[-1])
+        mm = np.where(f_[:, None] & reachable[None, :], m, 0.0)
+        phi = mlem(mm, np.where(f_, c, 0.0), duration, iters_)
+        ef = Efficiency(m, dep_c, v["eff"].table)
+        lo, hi = ((roi_mv[0] / mv_, roi_mv[1] / mv_) if args.series == "roi" else (trig_mv / mv_, np.inf))
+        n = v["series_total"]
+        return n / len(v["t_s"]) / float((phi / phi.sum()) @ ef.window(lo, hi))
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.8))
+    base = estimate(mv, args.noise_kev, args.iterations) * k
+    for ax, values, fn, xl in (
+            (axes[0], np.unique(np.round(np.r_[mv * np.array([0.9, 0.93, 0.96, 0.98, 1.0, 1.02, 1.04, 1.07, 1.1])], 3)),
+             lambda x: estimate(x, args.noise_kev, args.iterations), "detector scaling [mV/MeV]"),
+            (axes[1], np.array([0.0, 25, 50, 75, 100, 150, 200, 300]),
+             lambda x: estimate(mv, x, args.iterations), "resolution noise [keV]"),
+            (axes[2], np.array([10, 25, 50, 100, 150, 300, 600]),
+             lambda x: estimate(mv, args.noise_kev, int(x)), "MLEM iterations")):
+        ax.plot(values, [fn(x) * k for x in values], "o-")
+        ax.axhline(base, color="k", lw=0.8, ls="--")
+        ax.set(xlabel=xl, ylabel="surface flux [n/cm$^2$/s]"); grid(ax)
+    axes[0].set_title(f"Series-window flux vs analysis choices ({args.series} counter)")
+    save(fig, "d5_sensitivity.png")
+
+    # 6. time-series diagnostics
+    t_s, series = v["t_s"], v["series"]
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+    a = axes[0, 0]
+    kern = np.ones(60) / 60
+    for name, col in (("total", "C0"), ("roi", "C1")):
+        a.plot(t_s[29:-30] / 60, np.convolve(series[name], kern, "valid"), color=col, label=f"{name} counts/s (60 s mean)")
+    a.set(xlabel="runtime [min]", ylabel="counts/s", title="Raw count rates", yscale="log"); a.legend(); grid(a)
+    b = axes[0, 1]
+    mean_f = np.average(flux_t, weights=1 / flux_t_err ** 2)
+    zs = (flux_t - mean_f) / flux_t_err
+    b.hist(zs, bins=30, density=True, alpha=0.6, label=f"pulls (std {zs.std(ddof=1):.2f})")
+    xs = np.linspace(-4, 4, 200)
+    b.plot(xs, np.exp(-xs ** 2 / 2) / np.sqrt(2 * np.pi), "k", label="N(0,1)")
+    b.set(xlabel="(flux - mean)/stat. error", ylabel="density", title="Are fluctuations purely statistical?"); b.legend(); grid(b)
+    c = axes[1, 0]
+    cum = np.cumsum(series[args.series]) / np.arange(1, len(t_s) + 1) / v["eff_ser0"] * k
+    sig = np.sqrt(np.cumsum(series[args.series])) / np.arange(1, len(t_s) + 1) / v["eff_ser0"] * k
+    c.plot(t_s / 60, cum, color="C0"); c.fill_between(t_s / 60, cum - sig, cum + sig, alpha=0.3)
+    c.set(xlabel="runtime [min]", ylabel="cumulative mean surface flux [n/cm$^2$/s]", title="Convergence of the run mean")
+    grid(c)
+    d = axes[1, 1]
+    rate = series[args.series]
+    sizes = np.unique(np.round(np.geomspace(1, len(rate) // 8, 14)).astype(int))
+    rel = []
+    for n_ in sizes:
+        m_ = len(rate) // n_
+        bins = rate[: m_ * n_].reshape(m_, n_).sum(axis=1)
+        rel.append(bins.std(ddof=1) / bins.mean())
+    d.loglog(sizes, rel, "o-", label="measured")
+    d.loglog(sizes, 1 / np.sqrt(rate.mean() * sizes), "k--", label="Poisson expectation")
+    d.set(xlabel="bin length [s]", ylabel="relative std of binned rate", title="Excess variance vs bin length (drift appears as a plateau)")
+    d.legend(); grid(d)
+    save(fig, "d6_time_series_diagnostics.png")
+
+    # 7. detector flux and k vs distance for the available simulated fields
+    found = load_fields(args, v["inc_edges"]) if not args.surface_scale else []
+    if found:
+        dists = [d_ for d_, _ in found]
+        tot = [r["rate"].sum() + r["extra"] for _, r in found]
+        fig, (a, b) = plt.subplots(1, 2, figsize=(11, 4.5))
+        a.plot(dists, tot, "o-"); a.set(xlabel="distance from reactor surface [cm]", ylabel="detector flux [n/cm$^2$/s]",
+                                       title="Simulated detector flux vs distance")
+        b.plot(dists, [r["surface"] / t for (_, r), t in zip(found, tot)], "o-")
+        b.set(xlabel="distance from reactor surface [cm]", ylabel="k = surface / detector flux", title="Surface scaling factor")
+        for ax in (a, b):
+            if field is not None and "distance" in field and field["distance"] is not None:
+                ax.axvline(field["distance"], color="r", ls="--", label=f"used: {field['distance']:.2f} cm")
+            grid(ax); ax.legend() if ax.get_legend_handles_labels()[0] else None
+        save(fig, "d7_distance_scaling.png")
+    print("diagnostic plots:", ", ".join(saved), "->", out)
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--data", required=True)
     p.add_argument("--matrix", required=True)
-    p.add_argument("--field", default=None, help="reactor_field.npz (for the surface scaling)")
+    p.add_argument("--field", default=None, help="a single reactor_field.npz (distance taken from --distance-cm)")
+    p.add_argument("--field-dir", default="runs",
+                   help="directory searched for */npz/reactor_field.npz; the field at --distance-cm is picked or "
+                        "interpolated between the two bracketing simulated distances")
+    p.add_argument("--distance-cm", type=float, default=None,
+                   help="detector distance from the reactor surface [cm]; prompted if omitted")
+    p.add_argument("--surface-radius-cm", type=float, default=7.0,
+                   help="radius of the normalisation surface (outer cowling); distance = detector_x - radius")
+    p.add_argument("--surface-flux", type=float, default=2.5e6,
+                   help="surface flux [n/cm2/s] for saved fields that do not store it")
     p.add_argument("--surface-scale", type=float, default=None,
                    help="k = surface flux / detector flux (overrides --field)")
     p.add_argument("--efficiency", default=None)
@@ -127,6 +368,7 @@ def main(argv=None) -> int:
     p.add_argument("--iterations", type=int, default=150)
     p.add_argument("--replicas", type=int, default=30)
     p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--no-diagnostics", action="store_true", help="skip the plots in <out>/plots/diagnostics")
     args = p.parse_args(argv)
 
     import matplotlib
@@ -154,10 +396,13 @@ def main(argv=None) -> int:
     with np.load(data_file) as z:
         energy = np.asarray(z["channel a_spectrum_energy [MeV]"], float) * to_mev
         counts_adc = np.asarray(z["channel a_spectrum_counts"], float)
+        amp_mv = np.asarray(z["channel a_spectrum_amplitude [mV]"], float)
         t_s = np.asarray(z["channel a_rate_time [s]"], float)
         series = {"total": np.asarray(z["channel a_rate_total counts"], float),
                   "roi": np.asarray(z["channel a_rate_roi counts"], float)}
     duration = float(meta["duration [s]"])
+    raw_energy = energy / to_mev
+    series_total = float(series[args.series].sum())
     trigger_mev = float(meta["channel a_trigger [mV]"]) / mv
     roi_lo, roi_hi = (float(x) / mv for x in meta["channel a_roi [mV]"])
     e_max = float(energy[-1])                      # last ADC bin is overflow and dropped from the spectrum
@@ -166,6 +411,7 @@ def main(argv=None) -> int:
     # ---- response matrix and efficiency
     z = np.load(resolve_path(args.matrix), allow_pickle=False)
     inc_edges, dep_edges = z["inc_edges"], z["dep_edges"]
+    z_matrix, z_error = np.asarray(z["matrix"]), np.asarray(z["error"])
     g = smearing_kernel(dep_edges, args.noise_kev, args.relative_resolution)
     matrix = g @ z["matrix"]
     matrix_err = np.sqrt((g ** 2) @ z["error"] ** 2)
@@ -191,15 +437,15 @@ def main(argv=None) -> int:
 
     k = args.surface_scale
     field = None
-    if k is None and args.field:
-        field = np.load(resolve_path(args.field))
-        total = float(field["fluence_rate"].sum() + field.get("fluence_below_grid", 0) + field.get("fluence_above_grid", 0))
-        surface = float(field["surface_flux_n_cm2_s"]) if "surface_flux_n_cm2_s" in field.files else 0.0
-        if surface <= 0:
-            raise SystemExit("reactor_field.npz has no surface_flux_n_cm2_s; pass --surface-scale")
-        k = surface / total
+    distance = args.distance_cm
+    if distance is None and k is None:
+        answer = input("Detector distance from the reactor surface [cm] (Enter = use --field as is): ").strip() \
+            if sys.stdin.isatty() else ""
+        distance = float(answer) if answer else None
     if k is None:
-        raise SystemExit("give --field or --surface-scale")
+        field = field_at(args, distance, inc_edges)
+        k = field["k"]
+        print(f"field: {field['description']}")
     print(f"surface/detector flux factor k = {k:.4f}")
 
     # ---- unfolding and replicas
@@ -261,6 +507,11 @@ def main(argv=None) -> int:
         "notes": "flux in the series/threshold estimates assumes the unfolded spectral shape over 1-16 MeV; "
                  "uncertainties are statistical (counts + matrix), not unfolding bias.",
     }
+    if win_series[0] < args.min_pulse_mev:
+        summary["warning"] = (f"series window starts at {win_series[0]:.2f} MeV, below the unfolding limit "
+                              f"({args.min_pulse_mev:g} MeV): pulses there (gammas, noise, sub-MeV neutrons) are not "
+                              "described by the response matrix, so this flux is biased; compare with the ROI series")
+        print("WARNING:", summary["warning"])
     (out / "flux_summary.json").write_text(json.dumps(summary, indent=2))
 
     with open(out / "flux_vs_time.csv", "w", newline="") as fh:
@@ -317,7 +568,7 @@ def main(argv=None) -> int:
         a.fill_between(inc_c, np.maximum(surf - band, 0 if a is ax else 1e-30), surf + band, step="mid", color="C1",
                        alpha=0.3, label="$\\pm1\\sigma$ (counts + matrix)")
         if field is not None:
-            a.step(inc_c, field["fluence_rate"] / inc_w * k, where="mid", color="k", lw=1, label="simulated reactor field")
+            a.step(inc_c, field["rate"] / inc_w * k, where="mid", color="k", lw=1, label="simulated reactor field")
         grid(a)
     inset.set_yscale("log")
     inset.set_ylim(max(surf[surf > 0].min() * 0.5, 1e-3) if (surf > 0).any() else 1e-3, surf.max() * 3)
@@ -326,6 +577,9 @@ def main(argv=None) -> int:
     ax.legend(loc="upper left")
     fig.tight_layout(); fig.savefig(out / "plots" / "unfolded_spectrum_surface.png", dpi=150); plt.close(fig)
 
+
+    if not args.no_diagnostics:
+        diagnostics(locals())
     print(json.dumps({k_: v for k_, v in summary.items() if k_ != "notes"}, indent=1))
     print("wrote results to", out)
     return 0

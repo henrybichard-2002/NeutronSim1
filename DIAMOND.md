@@ -164,7 +164,7 @@ surface.
 python scripts/flux_analysis.py \
   --data "C:\Users\Romul\Analysis\DATA\15092026_90kV40mA_ChanAspectrum_1440" \
   --matrix runs/diamond_dt/npz/response_matrix.npz \
-  --field runs/diamond_compare_4p7/npz/reactor_field.npz \
+  --distance-cm 4.7 \
   --out runs/flux_4p7            # --mv-per-mev X (prompted if omitted), --series roi|total, --threshold-mev T, --bin-s 10
 ```
 
@@ -180,3 +180,20 @@ python scripts/flux_analysis.py \
   Incident bins below `min_pulse/0.284` MeV (carbon-recoil kinematic limit) are excluded.
 - Outputs: `flux_vs_time.csv`, `unfolded_spectrum.csv`, `efficiency_matrix.csv`, `flux_summary.json`,
   `plots/flux_vs_time.png`, `plots/flux_histogram.png`, `plots/unfolded_spectrum_surface.png`.
+
+### Distance and diagnostics
+
+- `--distance-cm D` (prompted if omitted) selects the reactor field for that detector distance from the surface. All
+  `runs/*/npz/reactor_field.npz` on the matrix grid are searched (`--field-dir`, or a single `--field`); an exact match is
+  used, a distance between two simulated ones is **linearly interpolated** (with a warning), outside the range it stops.
+  For an exact result simulate that distance with `diamond-response compare` first. The distance is
+  `detector_x - --surface-radius-cm` (default 7.0, the outer cowling); fields saved without the surface flux use `--surface-flux`.
+- `plots/diagnostics/` (skip with `--no-diagnostics`):
+  `d1_raw_adc_spectrum` (trigger/ROI/fit limits), `d2_refold_check` (refolded unfolding vs data, pulls, chi2),
+  `d3_efficiency_and_contribution` (window efficiencies; which incident energies make the window's pulses, unfolded vs simulated shape),
+  `d4_flux_vs_threshold` (flux from pulses above each threshold - should be flat; weighted with the unfolded and the simulated spectrum),
+  `d5_sensitivity` (flux vs mV/MeV, resolution noise, MLEM iterations), `d6_time_series_diagnostics` (count rates, pull histogram,
+  cumulative mean, relative variance vs bin length - a plateau above the Poisson line means drift),
+  `d7_distance_scaling` (simulated detector flux and k vs distance).
+- A series window starting below `--min-pulse-mev` (e.g. `--series total`, trigger ~0.26 MeV) triggers a warning: pulses there are not
+  in the response matrix, so that flux is biased high (it was ~2x the ROI result for the 1440 run).
