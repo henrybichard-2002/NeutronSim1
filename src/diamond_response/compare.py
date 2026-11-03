@@ -41,7 +41,13 @@ class Measured:
     notes: str
 
 
-def load_measured(path: str | Path, dep_edges: np.ndarray) -> Measured:
+DEFAULT_MV_PER_MEV = 100.0
+
+
+def load_measured(path: str | Path, dep_edges: np.ndarray, mv_per_mev: float = DEFAULT_MV_PER_MEV,
+                  assumed_mv_per_mev: float = DEFAULT_MV_PER_MEV) -> Measured:
+    """Rebin a measured spectrum; the stored energy axis was made with ``assumed_mv_per_mev`` and is
+    rescaled to the true ``mv_per_mev`` (energy = stored energy * assumed / true)."""
     folder = resolve_path(path)
     data_file = folder / "all_datasets.npz" if folder.is_dir() else folder
     if not data_file.exists():
@@ -51,6 +57,7 @@ def load_measured(path: str | Path, dep_edges: np.ndarray) -> Measured:
     with np.load(data_file) as z:
         energy = np.asarray(z["channel a_spectrum_energy [MeV]"], float)
         counts = np.asarray(z["channel a_spectrum_counts"], float)
+    energy = energy * (assumed_mv_per_mev / mv_per_mev)
     # the last ADC bin collects overflow
     energy, counts = energy[:-1], counts[:-1]
     index = np.searchsorted(dep_edges, energy, side="right") - 1

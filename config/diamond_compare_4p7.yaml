@@ -1,4 +1,4 @@
-# Field-only config for comparison with measurements (see 'diamond-response compare'). Diamond detector in the IEC reactor field (gen_reactor_config_profile.yaml). Detector centre 4.25 cm outside the outer cowling, z = 0.
+# Field-only config for comparison with measurements (see 'diamond-response compare'). Diamond detector in the IEC reactor field (gen_reactor_config_profile.yaml). Detector centre 4.7 cm outside the outer cowling, z = 0.
 detector:
   width_mm: [4.0, 4.0]
   thickness_um: 500.0
@@ -54,7 +54,7 @@ seed: 1
 
 reactor:
   config: gen_reactor_config_profile.yaml   # relative to this file
-  distance_from_surface_cm: 4.25            # from the normalisation surface (outer cowling) to the diamond centre
+  distance_from_surface_cm: 4.7            # from the normalisation surface (outer cowling) to the diamond centre
   z_cm: 0.0                                 # vertical middle of the cathode region
   particles: 1.0e+5   # per batch; total histories = particles x batches
   batches: 100

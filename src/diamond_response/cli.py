@@ -41,6 +41,10 @@ def _parser() -> argparse.ArgumentParser:
     c.add_argument("--iterations", type=int, default=None, help="override unfold.max_iterations (fewer = smoother)")
     c.add_argument("--min-pulse-mev", type=float, default=None, help="override unfold.min_pulse_mev")
     c.add_argument("--replicas", type=int, default=None, help="override unfold.replicas")
+    c.add_argument("--mv-per-mev", type=float, default=None,
+                   help="true detector scaling [mV per MeV]; prompted for if omitted")
+    c.add_argument("--assumed-mv-per-mev", type=float, default=100.0,
+                   help="scaling used to build the stored energy axis (default 100)")
     a = sub.add_parser("assemble", help="rebuild npz/response_matrix.npz, csv/plots from finished columns")
     a.add_argument("config", type=Path)
     a.add_argument("--out", type=Path, required=True)
@@ -122,7 +126,15 @@ def main(argv=None) -> int:
                 if value is not None:
                     setattr(config.unfold, key, value)
             matrix = ResponseMatrix.load(resolve_path(args.matrix))
-            measured = [load_measured(d, matrix.dep_edges) for d in args.data]
+            mv = args.mv_per_mev
+            if mv is None:
+                answer = input(f"Detector scaling [mV per MeV] (stored data assume {args.assumed_mv_per_mev:g}; "
+                               "Enter keeps it): ").strip() if sys.stdin.isatty() else ""
+                mv = float(answer) if answer else args.assumed_mv_per_mev
+            if mv <= 0:
+                raise ConfigError("mV per MeV must be positive")
+            print(f"using {mv:g} mV/MeV (stored axis assumes {args.assumed_mv_per_mev:g})")
+            measured = [load_measured(d, matrix.dep_edges, mv, args.assumed_mv_per_mev) for d in args.data]
             for path in run_comparison(config, field, matrix, measured, args.out, args.noise_kev,
                                        args.relative_resolution):
                 print("wrote", path)

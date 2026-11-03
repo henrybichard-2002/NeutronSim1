@@ -38,6 +38,7 @@ class ReactorField:
     fluence_below_grid: float = 0.0  # n/cm^2/s from 0 up to the lowest incident energy (not simulated)
     fluence_above_grid: float = 0.0  # n/cm^2/s above the highest incident energy (not simulated)
     angle_to_ring_ratio: float = 1.0  # angle-box flux / ring flux over the same energies (consistency check)
+    surface_flux_n_cm2_s: float = 0.0  # configured flux on the normalisation surface (all energies)
 
     def save(self, path: Path) -> None:
         np.savez(path, **{f.name: getattr(self, f.name) for f in dataclasses.fields(self)})
@@ -225,7 +226,7 @@ def extract_field(config: SimulationConfig, iec, statepoint: Path, volumes: dict
         coarse_edges=coarse, class_edges_deg=edges, class_fraction=fraction, class_mean_angle_deg=mean_angle,
         norm_rel_error=norm_err / norm_mean, source_rate=source_rate, detector_x_cm=x, detector_z_cm=z,
         fluence_below_grid=float(wide[0] * scale), fluence_above_grid=float(wide[2] * scale),
-        angle_to_ring_ratio=ratio)
+        angle_to_ring_ratio=ratio, surface_flux_n_cm2_s=float(iec.normalization.surface_flux_n_cm2_s))
 
 
 def run_class_matrices(config: SimulationConfig, field: ReactorField, outdir: Path, threads=None, log=print):

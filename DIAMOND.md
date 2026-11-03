@@ -127,11 +127,13 @@ where matrix errors (e.g. the assumed (n,alpha) branching) add bias; neutrons be
 ## Comparing with measured spectra
 
 ```bash
-# 1) field at the measurement position (4.25 cm) is simulated on first use (slow), then reused
-diamond-response compare config/diamond_compare_4p25.yaml \
+# 1) field at the measurement position (4.7 cm) is simulated on first use (slow), then reused
+diamond-response compare config/diamond_compare_4p7.yaml \
   --matrix runs/diamond_dt/npz/response_matrix.npz \
   --data "C:\Users\Romul\Analysis\DATA\15092026_90kV40mA_ChanAspectrum_1440" \
-  --out runs/diamond_compare_4p25            # optional: --iterations N --min-pulse-mev X --noise-kev K
+  --out runs/diamond_compare_4p7 \
+  --mv-per-mev 95            # asked interactively if omitted; stored axis assumes 100 mV/MeV
+  # optional: --iterations N --min-pulse-mev X --noise-kev K
 ```
 
 `--data` takes folders containing `all_datasets.npz` + `metadata.json` (Windows paths are converted under WSL; several
@@ -151,3 +153,30 @@ simulation lacks (gammas, <1 MeV neutrons, electronics noise), so chi2/ndf of th
 the unfolded curve is noisy at 0.025 MeV binning; use `--iterations` and `--min-pulse-mev` to trade resolution for stability.
 `response_matrix.png` colour scale spans the 1st-99th percentile of bins (bins below 1e-12 of the maximum, i.e. Gaussian-tail
 underflow, are excluded first).
+
+## Flux from measured data (`scripts/flux_analysis.py`)
+
+Freestanding script (numpy, scipy, matplotlib only). It unfolds the measured pulse-height spectrum, derives the
+spectrum-weighted efficiency of a pulse-height window, and converts pulse rates to flux at the detector and at the reactor
+surface.
+
+```bash
+python scripts/flux_analysis.py \
+  --data "C:\Users\Romul\Analysis\DATA\15092026_90kV40mA_ChanAspectrum_1440" \
+  --matrix runs/diamond_dt/npz/response_matrix.npz \
+  --field runs/diamond_compare_4p7/npz/reactor_field.npz \
+  --out runs/flux_4p7            # --mv-per-mev X (prompted if omitted), --series roi|total, --threshold-mev T, --bin-s 10
+```
+
+- Flux = pulse rate in the window / effective efficiency, `eff = sum_j w_j eps_j(window)` with `w` the unfolded spectral shape.
+  The time series uses the acquisition's per-second counters: `roi` (hardware ROI, default) or `total` (above trigger).
+  `--threshold-mev` sets the PH threshold of the spectrum-based flux (default: lower ROI edge, upper limit: ADC range).
+- Efficiency is computed from the resolution-smeared matrix unless `--efficiency table.csv` is given (first column incident MeV,
+  header = thresholds in MeV). The table used is written to `efficiency_matrix.csv`.
+- Surface flux = detector flux x k, k = configured surface flux / simulated detector flux (`--field`, or `--surface-scale k`).
+  One energy-independent factor: the surface spectral shape is not separately simulated. `reactor_field.npz` files made before
+  this feature lack `surface_flux_n_cm2_s`; use `--surface-scale` or re-save the field with that value.
+- The unfolding variance comes from `--replicas` fits with Poisson-resampled counts and matrix values varied within their statistical error.
+  Incident bins below `min_pulse/0.284` MeV (carbon-recoil kinematic limit) are excluded.
+- Outputs: `flux_vs_time.csv`, `unfolded_spectrum.csv`, `efficiency_matrix.csv`, `flux_summary.json`,
+  `plots/flux_vs_time.png`, `plots/flux_histogram.png`, `plots/unfolded_spectrum_surface.png`.
